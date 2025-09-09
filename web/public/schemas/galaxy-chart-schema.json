@@ -47,7 +47,8 @@
                 "id": { "type": "integer" },
                 "filling_name": { "type": "string" },
                 "position": { "$ref": "#/$defs/point" },
-                "ownership": { "$ref": "#/$defs/ownership" }
+                "ownership": { "$ref": "#/$defs/ownership" },
+                "parent_star_id": { "type": "integer" }
             },
             "required": ["id", "filling_name", "position"],
             "unevaluatedProperties": false

@@ -5,7 +5,7 @@ import JSZip from 'jszip'
 import Ajv, { type ValidateFunction } from 'ajv'
 import './index.css'
 
-const APP_VERSION = '0.1.0'
+const APP_VERSION = '0.3.0'
 const STORAGE_KEYS = {
 	version: 'sins2.appVersion',
 	project: 'sins2.project',
@@ -24,10 +24,11 @@ interface NodeItem {
 	filling_name: string
 	position: Point
 	ownership?: NodeOwnership
+	parent_star_id?: number
 }
 interface PhaseLane { id: number; node_a: number; node_b: number; type?: 'normal' | 'star' | 'wormhole' }
 
-import { BODY_TYPES, DEFAULT_BODY_TYPE_ID, getBodyRadiusById } from './data/bodyTypes'
+import { BODY_TYPES, DEFAULT_BODY_TYPE_ID, getBodyRadiusById, bodyTypeById } from './data/bodyTypes'
 
 interface ProjectStateSnapshot {
 	nodes: NodeItem[]
@@ -59,15 +60,15 @@ export default function App() {
 	const [gridSize, setGridSize] = useState<number>(40)
 
 	const stageRef = useRef<any>(null)
-	const nextNodeId = useRef<number>(2)
-	const nextLaneId = useRef<number>(1)
 	const canvasRef = useRef<HTMLDivElement>(null)
 	const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 })
 
 	const ajv = useMemo(() => new Ajv({ allErrors: true, strict: false }), [])
 	const [validateScenario, setValidateScenario] = useState<ValidateFunction | null>(null)
 	const [validateUniforms, setValidateUniforms] = useState<ValidateFunction | null>(null)
-
+	const [extScenarioValidator, setExtScenarioValidator] = useState<ValidateFunction | null>(null)
+	const [extUniformsValidator, setExtUniformsValidator] = useState<ValidateFunction | null>(null)
+	const [extValidatorStatus, setExtValidatorStatus] = useState<string>('No official schemas loaded')
 
 
 	// Bundled registry options grouped
@@ -99,22 +100,26 @@ export default function App() {
 		loadSchemas()
 	}, [ajv])
 
+	const nextNodeId = useRef<number>(2)
+	const nextLaneId = useRef<number>(1)
+
 	// Parse share URL
 	useEffect(() => {
 		const params = new URLSearchParams(window.location.search)
 		const s = params.get('s')
 		if (!s) return
 		try {
-			const decoded = decodeState(s) as { nodes: NodeItem[]; lanes: PhaseLane[]; skybox: string; players: number; scenarioName?: string }
-			if (decoded) {
+			const decoded = decodeState(s) as any
+			if (!decoded) return
+			if (Array.isArray(decoded.nodes) && Array.isArray(decoded.lanes)) {
 				setNodes(decoded.nodes)
 				setLanes(decoded.lanes)
-				setSkybox(decoded.skybox)
-				setPlayers(decoded.players)
+				setSelectedId(decoded.nodes[0]?.id ?? null)
+				if (typeof decoded.skybox === 'string') setSkybox(decoded.skybox)
+				if (typeof decoded.players === 'number') setPlayers(decoded.players)
 				setScenarioName(decoded.scenarioName || 'SharedScenario')
-				// Fix ids for new additions
-				nextNodeId.current = (decoded.nodes.reduce((maxId: number, n: NodeItem) => Math.max(maxId, n.id), 0) || 0) + 1
-				nextLaneId.current = (decoded.lanes.reduce((maxId: number, n: PhaseLane) => Math.max(maxId, n.id), 0) || 0) + 1
+				nextNodeId.current = (decoded.nodes.reduce((m: number, n: NodeItem) => Math.max(m, n.id), 0) || 0) + 1
+				nextLaneId.current = (decoded.lanes.reduce((m: number, l: PhaseLane) => Math.max(m, l.id), 0) || 0) + 1
 			}
 		} catch {}
 	}, [])
@@ -137,17 +142,16 @@ export default function App() {
 			if (Array.isArray(snap.nodes) && Array.isArray(snap.lanes)) {
 				setNodes(snap.nodes)
 				setLanes(snap.lanes)
-				if (typeof snap.scenarioName === 'string') setScenarioName(snap.scenarioName)
-				if (typeof snap.skybox === 'string') setSkybox(snap.skybox)
-				if (typeof snap.players === 'number') setPlayers(snap.players)
-				if (snap.grid) {
-					setShowGrid(!!snap.grid.showGrid)
-					setSnapToGrid(!!snap.grid.snapToGrid)
-					if (typeof snap.grid.gridSize === 'number') setGridSize(snap.grid.gridSize)
-				}
-				// ensure counters are above loaded ids
 				nextNodeId.current = (snap.nodes.reduce((m, n) => Math.max(m, n.id), 0) || 0) + 1
 				nextLaneId.current = (snap.lanes.reduce((m, l) => Math.max(m, l.id), 0) || 0) + 1
+			}
+			if (typeof snap.scenarioName === 'string') setScenarioName(snap.scenarioName)
+			if (typeof snap.skybox === 'string') setSkybox(snap.skybox)
+			if (typeof snap.players === 'number') setPlayers(snap.players)
+			if (snap.grid) {
+				setShowGrid(!!snap.grid.showGrid)
+				setSnapToGrid(!!snap.grid.snapToGrid)
+				if (typeof snap.grid.gridSize === 'number') setGridSize(snap.grid.gridSize)
 			}
 		} catch {}
 	}, [])
@@ -162,7 +166,6 @@ export default function App() {
 			players,
 			grid: { showGrid, snapToGrid, gridSize },
 		}
-		// debounce save
 		const t = setTimeout(() => {
 			try { localStorage.setItem(STORAGE_KEYS.project, JSON.stringify(snap)) } catch {}
 		}, 300)
@@ -192,6 +195,19 @@ export default function App() {
 				w.push(`Node ${n.id} player_index out of range 1..${players}`)
 			}
 		}
+		// Star/planet constraints
+		const starIds = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category === 'star').map(n => n.id)
+		if (starIds.length > 15) w.push(`Too many stars: ${starIds.length} (max 15)`) 
+		const planets = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category === 'planet')
+		for (const sid of starIds) {
+			const count = planets.filter(p => p.parent_star_id === sid).length
+			if (count > 100) w.push(`Star ${sid} has ${count} planets (max 100)`)
+		}
+		if (starIds.length > 0) {
+			for (const p of planets) {
+				if (!p.parent_star_id) w.push(`Planet node ${p.id} has no parent_star_id`)
+			}
+		}
 		setWarnings(w)
 	}, [lanes, nodes, players])
 
@@ -214,10 +230,35 @@ export default function App() {
 
 	const addNode = (typeId?: string) => {
 		const id = nextNodeId.current++
+		const filling = typeId ?? DEFAULT_BODY_TYPE_ID
+		const isStar = bodyTypeById.get(filling)?.category === 'star'
+		// Enforce star count ≤ 15
+		if (isStar) {
+			const starCount = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category === 'star').length
+			if (starCount >= 15) {
+				alert('Star limit reached (15).')
+				return
+			}
+		}
+		// If adding a planet, set parent_star_id to currently selected star if any, and enforce ≤100 per star
+		let parent_star_id: number | undefined = undefined
+		if (!isStar) {
+			const selected = selectedId != null ? nodes.find(n => n.id === selectedId) : undefined
+			const selectedIsStar = selected && bodyTypeById.get(selected.filling_name)?.category === 'star'
+			if (selectedIsStar) parent_star_id = selected!.id
+			if (parent_star_id != null) {
+				const count = nodes.filter(n => n.parent_star_id === parent_star_id).length
+				if (count >= 100) {
+					alert('Planet limit per star reached (100).')
+					return
+				}
+			}
+		}
 		const newNode: NodeItem = {
 			id,
-			filling_name: typeId ?? DEFAULT_BODY_TYPE_ID,
+			filling_name: filling,
 			position: { x: 200 + Math.random() * 600, y: 160 + Math.random() * 400 },
+			...(parent_star_id != null ? { parent_star_id } : {}),
 		}
 		setNodes(prev => [...prev, newNode])
 		setSelectedId(id)
@@ -227,6 +268,11 @@ export default function App() {
 		if (selectedId == null) return
 		setNodes(prev => prev.filter(n => n.id !== selectedId))
 		setLanes(prev => prev.filter(l => l.node_a !== selectedId && l.node_b !== selectedId))
+		// If removing a star, clear parent_star_id on planets referencing it
+		const removed = nodes.find(n => n.id === selectedId)
+		if (removed && bodyTypeById.get(removed.filling_name)?.category === 'star') {
+			setNodes(prev => prev.map(n => n.parent_star_id === removed.id ? { ...n, parent_star_id: undefined } : n))
+		}
 		setSelectedId(null)
 	}
 
@@ -258,8 +304,47 @@ export default function App() {
 		// Create lane if not exists
 		const exists = lanes.some(l => (l.node_a === linkStartId && l.node_b === id) || (l.node_b === linkStartId && l.node_a === id))
 		if (!exists) {
-			const lane: PhaseLane = { id: nextLaneId.current++, node_a: linkStartId, node_b: id, type: newLaneType }
+			const a = nodes.find(n => n.id === linkStartId)
+			const b = nodes.find(n => n.id === id)
+			if (!a || !b) { setLinkStartId(null); return }
+			const aCat = bodyTypeById.get(a.filling_name)?.category
+			const bCat = bodyTypeById.get(b.filling_name)?.category
+			// If linking planet <-> star, enforce at most one star link per planet
+			if ((aCat === 'planet' && bCat === 'star') || (aCat === 'star' && bCat === 'planet')) {
+				const planetId = aCat === 'planet' ? a.id : b.id
+				const starId = aCat === 'star' ? a.id : b.id
+				// Find any existing star link for this planet
+				const existingStarLink = lanes.find(l => {
+					const otherId = l.node_a === planetId ? l.node_b : l.node_b === planetId ? l.node_a : null
+					if (otherId == null) return false
+					const otherNode = nodes.find(n => n.id === otherId)
+					return !!otherNode && bodyTypeById.get(otherNode.filling_name)?.category === 'star'
+				})
+				if (existingStarLink) {
+					// Planet already linked to some star, block linking to another star
+					const existingOtherId = existingStarLink.node_a === planetId ? existingStarLink.node_b : existingStarLink.node_a
+					if (existingOtherId !== starId) {
+						alert('This planet is already linked to a star. Delete the existing link first.')
+						setLinkStartId(null)
+						return
+					}
+				}
+				// Also honor parent_star_id if set
+				const planetNode = nodes.find(n => n.id === planetId)
+				if (planetNode?.parent_star_id && planetNode.parent_star_id !== starId) {
+					alert('This planet already has a parent star. Delete the existing star link first.')
+					setLinkStartId(null)
+					return
+				}
+			}
+			const lane: PhaseLane = { id: nextLaneId.current++, node_a: linkStartId!, node_b: id, type: newLaneType }
 			setLanes(prev => [...prev, lane])
+			// If planet-star link, set parent_star_id when missing
+			if ((aCat === 'planet' && bCat === 'star') || (aCat === 'star' && bCat === 'planet')) {
+				const planetId = aCat === 'planet' ? a.id : b.id
+				const starId = aCat === 'star' ? a.id : b.id
+				setNodes(prev => prev.map(n => n.id === planetId && !n.parent_star_id ? { ...n, parent_star_id: starId } : n))
+			}
 		}
 		setLinkStartId(null)
 	}
@@ -270,7 +355,30 @@ export default function App() {
 
 	const onLaneClick = (laneId: number) => {
 		if (!laneDeleteMode) return
+		const removed = lanes.find(l => l.id === laneId)
 		setLanes(prev => prev.filter(l => l.id !== laneId))
+		if (removed) {
+			const a = nodes.find(n => n.id === removed.node_a)
+			const b = nodes.find(n => n.id === removed.node_b)
+			const aCat = a ? bodyTypeById.get(a.filling_name)?.category : undefined
+			const bCat = b ? bodyTypeById.get(b.filling_name)?.category : undefined
+			if ((aCat === 'planet' && bCat === 'star') || (aCat === 'star' && bCat === 'planet')) {
+				const planetId = aCat === 'planet' ? removed.node_a : removed.node_b
+				const starId = aCat === 'star' ? removed.node_a : removed.node_b
+				// After removal, if planet no longer has any star links, clear parent_star_id
+				const stillLinked = lanes.some(l => {
+					if (l.id === laneId) return false
+					const isPlanetEndpoint = l.node_a === planetId || l.node_b === planetId
+					if (!isPlanetEndpoint) return false
+					const otherId = l.node_a === planetId ? l.node_b : l.node_a
+					const otherNode = nodes.find(n => n.id === otherId)
+					return !!otherNode && bodyTypeById.get(otherNode.filling_name)?.category === 'star'
+				})
+				if (!stillLinked) {
+					setNodes(prev => prev.map(n => n.id === planetId && n.parent_star_id === starId ? { ...n, parent_star_id: undefined } : n))
+				}
+			}
+		}
 	}
 
 	const exportZip = async () => {
@@ -288,6 +396,21 @@ export default function App() {
 			const validU = validateUniforms(uniformsObj)
 			if (!validU) {
 				setAjvError(JSON.stringify(validateUniforms.errors, null, 2))
+				return
+			}
+		}
+		// If external/official validators provided, enforce them too
+		if (extScenarioValidator) {
+			const ok = extScenarioValidator(scenario)
+			if (!ok) {
+				setAjvError('Official scenario schema errors:\n' + JSON.stringify(extScenarioValidator.errors, null, 2))
+				return
+			}
+		}
+		if (extUniformsValidator) {
+			const okU = extUniformsValidator(uniformsObj)
+			if (!okU) {
+				setAjvError('Official uniforms schema errors:\n' + JSON.stringify(extUniformsValidator.errors, null, 2))
 				return
 			}
 		}
@@ -355,6 +478,11 @@ export default function App() {
 						</div>
 
 						<div className="space-y-2 bg-neutral-900/30 border border-white/10 rounded p-3">
+							<div className="font-medium text-sm">Solar System</div>
+							<div className="text-xs opacity-75">A scenario represents a single solar system. You can add multiple stars and their planets below.</div>
+						</div>
+
+						<div className="space-y-2 bg-neutral-900/30 border border-white/10 rounded p-3">
 							<div className="font-medium text-sm">Tools</div>
 							<div className="flex gap-2 flex-wrap mt-1">
 								<button className={`px-3 py-1 rounded border border-white/20 ${linkMode ? 'bg-white text-black' : 'bg-neutral-900'}`} onClick={toggleLinkMode}>{linkMode ? 'Link: ON' : 'Link: OFF'}</button>
@@ -388,7 +516,7 @@ export default function App() {
 								<select
 									className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded"
 									value={selectedNode.filling_name}
-									onChange={e => setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, filling_name: e.target.value } : n))}
+									onChange={e => setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, filling_name: e.target.value } : n) )}
 								>
 									<optgroup label="Stars (Bundled)">
 										{bundled.stars.map(b => <option key={b.id} value={b.id}>{b.label}</option>)}
@@ -419,7 +547,7 @@ export default function App() {
 												if (mode === 'none') return { ...n, ownership: undefined }
 												if (mode === 'player') return { ...n, ownership: { player_index: 1 } }
 												return { ...n, ownership: { npc_filling_type: 'militia', npc_filling_name: 'default' } }
-											}))
+											}) )
 										}}
 									>
 										<option value="none">Unowned</option>
@@ -431,7 +559,7 @@ export default function App() {
 										<div className="space-y-1 mt-2">
 											<label className="block text-sm">Player Index (1..{players})</label>
 											<input type="number" min={1} max={players} className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={selectedNode.ownership.player_index}
-												onChange={e => setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { ...n.ownership, player_index: Math.max(1, Math.min(players, Number(e.target.value) || 1)) } } : n))}
+												onChange={e => setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { ...n.ownership, player_index: Math.max(1, Math.min(players, Number(e.target.value) || 1)) } } : n) )}
 											/>
 										</div>
 									)}
@@ -440,7 +568,7 @@ export default function App() {
 										<div className="space-y-1 mt-2">
 											<label className="block text-sm">NPC Type</label>
 											<select className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={selectedNode.ownership.npc_filling_type}
-												onChange={e => setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { ...n.ownership, npc_filling_type: e.target.value as NodeOwnership['npc_filling_type'] } } : n))}
+												onChange={e => setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { ...n.ownership, npc_filling_type: e.target.value as NodeOwnership['npc_filling_type'] } } : n) )}
 											>
 												<option value="militia">militia</option>
 												<option value="guardian">guardian</option>
@@ -449,7 +577,7 @@ export default function App() {
 											</select>
 											<label className="block text-sm">NPC Filling Name</label>
 											<input className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={selectedNode.ownership.npc_filling_name ?? ''}
-												onChange={e => setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { ...n.ownership, npc_filling_name: e.target.value } } : n))}
+												onChange={e => setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { ...n.ownership, npc_filling_name: e.target.value } } : n) )}
 											/>
 										</div>
 									)}
@@ -511,6 +639,44 @@ export default function App() {
 							) : (
 								<div className="text-xs opacity-70">No validation errors.</div>
 							)}
+							<div className="mt-2">
+								<div className="text-xs font-medium opacity-90">Official Schemas (Optional)</div>
+								<div className="text-xs opacity-70 mb-1">Load Sins II official JSON Schemas (BYO) to validate against the game's requirements. These are not bundled.</div>
+								<div className="flex flex-col gap-2">
+									<label className="text-xs">Scenario Schema
+										<input type="file" accept="application/json" className="block mt-1 text-xs" onChange={async e => {
+											const file = e.target.files?.[0]
+											if (!file) return
+											try {
+												const text = await file.text()
+												const schema = JSON.parse(text)
+												const v = ajv.compile(schema)
+												setExtScenarioValidator(() => v)
+												setExtValidatorStatus('Official scenario schema loaded')
+											} catch {
+												alert('Failed to load scenario schema file')
+											}
+										}} />
+									</label>
+									<label className="text-xs">Uniforms Schema
+										<input type="file" accept="application/json" className="block mt-1 text-xs" onChange={async e => {
+											const file = e.target.files?.[0]
+											if (!file) return
+											try {
+												const text = await file.text()
+												const schema = JSON.parse(text)
+												const v = ajv.compile(schema)
+												setExtUniformsValidator(() => v)
+												setExtValidatorStatus(prev => prev.includes('Scenario') ? 'Official scenario and uniforms schemas loaded' : 'Official uniforms schema loaded')
+											} catch {
+												alert('Failed to load uniforms schema file')
+											}
+										}} />
+									</label>
+									<button className="px-2 py-1 rounded border border-white/20 bg-neutral-900 text-xs w-max" onClick={() => { setExtScenarioValidator(null); setExtUniformsValidator(null); setExtValidatorStatus('No official schemas loaded') }}>Clear Official Schemas</button>
+									<div className="text-xs opacity-70">{extValidatorStatus}</div>
+								</div>
+							</div>
 						</div>
 
 						<div className="space-y-3 bg-neutral-900/30 border border-white/10 rounded p-3">
@@ -571,16 +737,25 @@ export default function App() {
 }
 
 function buildScenarioJSON(nodes: NodeItem[], lanes: PhaseLane[], skybox: string) {
+	// Flatten systems into a single scenario: offset lane IDs to avoid collisions
+	const allNodes: NodeItem[] = []
+	const allLanes: PhaseLane[] = []
+	for (const n of nodes) {
+		allNodes.push(n)
+	}
+	for (const l of lanes) {
+		allLanes.push(l)
+	}
 	return {
 		version: 1,
 		skybox,
-		root_nodes: nodes.map(n => ({
+		root_nodes: allNodes.map(n => ({
 			id: n.id,
 			filling_name: n.filling_name,
 			position: [n.position.x, n.position.y],
 			...(n.ownership ? { ownership: n.ownership } : {}),
 		})),
-		phase_lanes: lanes.map(l => ({ id: l.id, node_a: l.node_a, node_b: l.node_b, ...(l.type ? { type: l.type } : {}) })),
+		phase_lanes: allLanes.map(l => ({ id: l.id, node_a: l.node_a, node_b: l.node_b, ...(l.type ? { type: l.type } : {}) })),
 	}
 }
 
