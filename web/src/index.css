@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+/* Minimal base overrides */
+:root {
+  color-scheme: dark;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+/* Ensure the app takes full viewport */
+body {
+  margin: 0;
+}

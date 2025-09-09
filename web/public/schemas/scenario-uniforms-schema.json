@@ -1,0 +1,50 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Scenario Uniforms (Clean-room)",
+    "description": "Minimal schema for uniforms that this tool emits.",
+    "type": "object",
+    "properties": {
+        "version": { "type": "integer" },
+        "dlc_multiplayer_scenarios": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/dlc_multiplayer_item" },
+            "default": []
+        },
+        "dlc_scenarios": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/dlc_item" },
+            "default": []
+        },
+        "fake_server_scenarios": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": []
+        },
+        "scenarios": {
+            "type": "array",
+            "items": { "type": "string" }
+        }
+    },
+    "required": ["scenarios"],
+    "unevaluatedProperties": false,
+    "$defs": {
+        "dlc_multiplayer_item": {
+            "type": "object",
+            "properties": {
+                "product_id": { "type": "string" },
+                "scenario_ptrs": { "type": "array", "items": { "type": "string" } }
+            },
+            "required": ["product_id", "scenario_ptrs"],
+            "unevaluatedProperties": false
+        },
+        "dlc_item": {
+            "type": "object",
+            "properties": {
+                "product_id": { "type": "string" },
+                "scenario_ptrs": { "type": "array", "items": { "type": "string" } }
+            },
+            "required": ["product_id", "scenario_ptrs"],
+            "unevaluatedProperties": false
+        }
+    }
+}
