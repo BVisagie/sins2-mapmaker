@@ -27,6 +27,10 @@ interface NodeItem {
 	position: Point
 	ownership?: NodeOwnership
 	parent_star_id?: number
+    rotation?: number
+    chance_of_loot?: number
+    has_artifact?: boolean
+    artifact_name?: string
 	initial_category: BodyTypeCategory
 }
 interface PhaseLane { id: number; node_a: number; node_b: number; type?: 'normal' | 'star' | 'wormhole' }
@@ -42,6 +46,8 @@ interface ProjectStateSnapshot {
 	players: number
     modCompatVersion: number
 	grid: { showGrid: boolean; snapToGrid: boolean; gridSize: number }
+    author?: string
+    shortDescription?: string
 }
 
 export default function App() {
@@ -52,8 +58,10 @@ export default function App() {
 	const [selectedId, setSelectedId] = useState<number | null>(1)
 	const [scenarioName, setScenarioName] = useState<string>('MyScenario')
 	const [skybox, setSkybox] = useState<string>('skybox_random')
-	const [players, setPlayers] = useState<number>(2)
+const [players, setPlayers] = useState<number>(2)
     const [modCompatVersion, setModCompatVersion] = useState<number>(2)
+    const [author, setAuthor] = useState<string>('')
+    const [shortDescription, setShortDescription] = useState<string>('')
 	const [linkMode, setLinkMode] = useState<boolean>(false)
 	const [laneDeleteMode, setLaneDeleteMode] = useState<boolean>(false)
 	const [linkStartId, setLinkStartId] = useState<number | null>(null)
@@ -95,7 +103,7 @@ export default function App() {
 	}, [])
 
 	// Load schemas once
-	useEffect(() => {
+    useEffect(() => {
 		async function loadSchemas() {
 			const [scenarioRes, uniformsRes] = await Promise.all([
 				fetch('/schemas/galaxy-chart-schema.json'),
@@ -134,14 +142,14 @@ export default function App() {
 				if (typeof decoded.players === 'number') setPlayers(Math.max(2, Math.min(10, decoded.players)))
 				setScenarioName(decoded.scenarioName || 'SharedScenario')
                 if (typeof decoded.modCompatVersion === 'number') setModCompatVersion(Math.max(1, Math.floor(decoded.modCompatVersion)))
-				nextNodeId.current = (decoded.nodes.reduce((m: number, n: NodeItem) => Math.max(m, n.id), 0) || 0) + 1
+                nextNodeId.current = (decoded.nodes.reduce((m: number, n: NodeItem) => Math.max(m, n.id), 0) || 0) + 1
 				nextLaneId.current = (decoded.lanes.reduce((m: number, l: PhaseLane) => Math.max(m, l.id), 0) || 0) + 1
 			}
 		} catch {}
 	}, [])
 
 	// Versioned localStorage reset and initial load
-	useEffect(() => {
+    useEffect(() => {
 		const storedVersion = localStorage.getItem(STORAGE_KEYS.version)
 		if (storedVersion !== APP_VERSION) {
 			localStorage.removeItem(STORAGE_KEYS.project)
@@ -167,6 +175,8 @@ export default function App() {
 			}
 			if (typeof snap.scenarioName === 'string') setScenarioName(snap.scenarioName)
             if (typeof (snap as any).modCompatVersion === 'number') setModCompatVersion(Math.max(1, Math.floor((snap as any).modCompatVersion)))
+            if (typeof (snap as any).author === 'string') setAuthor((snap as any).author)
+            if (typeof (snap as any).shortDescription === 'string') setShortDescription((snap as any).shortDescription)
 			// Skybox is fixed to skybox_random in the editor UI
 			if (typeof snap.players === 'number') setPlayers(Math.max(2, Math.min(10, snap.players)))
 			if (snap.grid) {
@@ -178,7 +188,7 @@ export default function App() {
 	}, [])
 
 	// Autosave project state
-	useEffect(() => {
+    useEffect(() => {
 		const snap: ProjectStateSnapshot = {
 			nodes,
 			lanes,
@@ -186,13 +196,15 @@ export default function App() {
 			skybox,
 			players,
             modCompatVersion,
+            author,
+            shortDescription,
 			grid: { showGrid, snapToGrid, gridSize },
 		}
 		const t = setTimeout(() => {
 			try { localStorage.setItem(STORAGE_KEYS.project, JSON.stringify(snap)) } catch {}
 		}, 300)
 		return () => clearTimeout(t)
-	}, [nodes, lanes, scenarioName, skybox, players, showGrid, snapToGrid, gridSize])
+    }, [nodes, lanes, scenarioName, skybox, players, showGrid, snapToGrid, gridSize, author, shortDescription])
 
 	// Compute simple warnings
 	useEffect(() => {
@@ -575,10 +587,11 @@ export default function App() {
 	}
 
 	const exportZip = async () => {
-		const scenario = buildScenarioJSON(nodes, lanes, skybox, players)
-		const sanitized = sanitizeName(scenarioName)
-		const scenarioFileBase = sanitized.toLowerCase()
-		const uniformsObj = buildScenarioUniformsObject(scenarioFileBase)
+    const scenario = buildScenarioJSON(nodes, lanes, skybox, players)
+    const sanitized = sanitizeName(scenarioName)
+    // Preserve case and underscores for file base and uniforms entry
+    const scenarioFileBase = sanitized
+    const uniformsObj = buildScenarioUniformsObject(scenarioFileBase)
 
 		if (validateScenario) {
 			const valid = validateScenario(scenario)
@@ -604,8 +617,8 @@ export default function App() {
 		const zip = new JSZip()
         const root = `${scenarioFileBase}/`
 
-        zip.file(`${root}.mod_meta_data`, buildModMetaData(scenarioName, modCompatVersion))
-		zip.file(`${root}scenario.uniforms`, JSON.stringify(uniformsObj, null, 2))
+        zip.file(`${root}.mod_meta_data`, buildModMetaData(scenarioName, modCompatVersion, author, shortDescription))
+        zip.file(`${root}uniforms/scenario.uniforms`, JSON.stringify(uniformsObj, null, 2))
 		zip.file(`${root}scenarios/${scenarioFileBase}.scenario`, JSON.stringify(scenario, null, 2))
 
 		// Add a PNG snapshot of the map with player numbers
@@ -624,11 +637,55 @@ export default function App() {
 		URL.revokeObjectURL(url)
 	}
 
-	const createMapPictureBlob = async (): Promise<Blob | null> => {
+const createMapPictureBlob = async (): Promise<Blob | null> => {
 		const stage: any = stageRef.current
 		if (!stage || !stage.toDataURL) return null
 		const pixelRatio = 2
-		const dataUrl: string = stage.toDataURL({ pixelRatio })
+
+		// Compute tight bounding box around all nodes (including radii)
+		if (nodes.length === 0) {
+			const dataUrlFull: string = stage.toDataURL({ pixelRatio })
+			return await new Promise<Blob | null>((resolve) => {
+				const img = new Image()
+				img.onload = () => {
+					const canvas = document.createElement('canvas')
+					canvas.width = img.width
+					canvas.height = img.height
+					const ctx = canvas.getContext('2d')
+					if (!ctx) { resolve(null); return }
+					ctx.fillStyle = '#000000'
+					ctx.fillRect(0, 0, canvas.width, canvas.height)
+					ctx.drawImage(img, 0, 0)
+					canvas.toBlob((blob) => resolve(blob), 'image/png')
+				}
+				img.onerror = () => resolve(null)
+				img.src = dataUrlFull
+			})
+		}
+
+		const stageW: number = stage.width()
+		const stageH: number = stage.height()
+		const pad = 40
+		let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+		nodes.forEach(n => {
+			const r = getBodyRadiusById(n.filling_name)
+			minX = Math.min(minX, n.position.x - r)
+			minY = Math.min(minY, n.position.y - r)
+			maxX = Math.max(maxX, n.position.x + r)
+			maxY = Math.max(maxY, n.position.y + r)
+		})
+		if (!isFinite(minX) || !isFinite(minY) || !isFinite(maxX) || !isFinite(maxY)) {
+			minX = 0; minY = 0; maxX = stageW; maxY = stageH
+		}
+		let cropX = Math.max(0, Math.floor(minX - pad))
+		let cropY = Math.max(0, Math.floor(minY - pad))
+		let cropW = Math.ceil((maxX + pad) - cropX)
+		let cropH = Math.ceil((maxY + pad) - cropY)
+		if (cropX + cropW > stageW) cropW = stageW - cropX
+		if (cropY + cropH > stageH) cropH = stageH - cropY
+		if (cropW <= 0 || cropH <= 0) { cropX = 0; cropY = 0; cropW = stageW; cropH = stageH }
+
+		const dataUrl: string = stage.toDataURL({ x: cropX, y: cropY, width: cropW, height: cropH, pixelRatio })
 		return await new Promise<Blob | null>((resolve) => {
 			const baseImg = new Image()
 			baseImg.onload = () => {
@@ -651,7 +708,7 @@ export default function App() {
 						homeByPlayer.set(p, { x: n.position.x, y: n.position.y })
 					}
 				})
-				// Draw numbered badges near homes
+				// Draw numbered badges near homes (offset by crop)
 				const badgeRadius = 10 * pixelRatio
 				const badgeOffsetX = 12 * pixelRatio
 				const badgeOffsetY = -12 * pixelRatio
@@ -659,8 +716,8 @@ export default function App() {
 				ctx.textBaseline = 'middle'
 				ctx.font = `${12 * pixelRatio}px sans-serif`
 				for (const [playerIdx, pos] of homeByPlayer) {
-					const x = pos.x * pixelRatio + badgeOffsetX
-					const y = pos.y * pixelRatio + badgeOffsetY
+					const x = (pos.x - cropX) * pixelRatio + badgeOffsetX
+					const y = (pos.y - cropY) * pixelRatio + badgeOffsetY
 					ctx.beginPath()
 					ctx.arc(x, y, badgeRadius, 0, Math.PI * 2)
 					ctx.fillStyle = 'rgba(0,0,0,0.85)'
@@ -709,8 +766,10 @@ export default function App() {
 		setSelectedId(1)
 		setScenarioName('MyScenario')
 		setSkybox('skybox_random')
-		setPlayers(2)
+        setPlayers(2)
         setModCompatVersion(2)
+        setAuthor('')
+        setShortDescription('')
 		setLinkMode(false)
 		setLaneDeleteMode(false)
 		setLinkStartId(null)
@@ -744,7 +803,7 @@ export default function App() {
 			<div className="flex flex-1 overflow-hidden">
 				<div className="w-96 border-r border-white/10 p-4 overflow-auto">
 					<div className="space-y-6">
-						<div className="space-y-2 bg-neutral-900/30 border border-white/10 rounded p-3">
+		<div className="space-y-2 bg-neutral-900/30 border border-white/10 rounded p-3">
 							<div className="font-medium text-sm">Scenario</div>
 							<label className="block text-xs opacity-80">Scenario Name</label>
 						<input className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={scenarioName} onChange={e => {
@@ -753,6 +812,10 @@ export default function App() {
 							const cleaned = raw.replace(/[^A-Za-z0-9 ]+/g, '')
 							setScenarioName(cleaned)
 						}} />
+						<label className="block text-xs opacity-80 mt-2">Author</label>
+						<input className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={author} onChange={e => setAuthor(e.target.value)} />
+						<label className="block text-xs opacity-80 mt-2">Short Description</label>
+						<input className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={shortDescription} onChange={e => setShortDescription(e.target.value)} />
 						<div className="block text-xs opacity-80 mt-2">Skybox</div>
 						<div className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded opacity-60 select-none">skybox_random</div>
 						<label className="block text-xs opacity-80 mt-2">Players</label>
@@ -810,6 +873,40 @@ export default function App() {
 							<div className="space-y-2 bg-neutral-900/30 border border-white/10 rounded p-3">
 								<div className="font-medium text-sm">Selected Node</div>
 								<div className="text-xs opacity-75">id: {selectedNode.id}</div>
+                            <div className="grid grid-cols-2 gap-2 mt-1">
+                                <label className="block text-xs opacity-80">Rotation
+                                    <input type="number" step={0.1} className="w-full mt-1 px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={selectedNode.rotation ?? ''}
+                                        onChange={e => {
+                                            const v = e.target.value
+                                            setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, rotation: v === '' ? undefined : Number(v) } : n))
+                                        }}
+                                    />
+                                </label>
+                                <label className="block text-xs opacity-80">Chance of Loot (0..1)
+                                    <input type="number" min={0} max={1} step={0.05} className="w-full mt-1 px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={selectedNode.chance_of_loot ?? ''}
+                                        onChange={e => {
+                                            const v = e.target.value
+                                            let num = v === '' ? undefined : Number(v)
+                                            if (typeof num === 'number') num = Math.max(0, Math.min(1, num as number))
+                                            setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, chance_of_loot: (num as number | undefined) } : n))
+                                        }}
+                                    />
+                                </label>
+                            </div>
+                            <div className="mt-2">
+                                <label className="inline-flex items-center gap-2 text-sm">
+                                    <input type="checkbox" checked={!!selectedNode.has_artifact} onChange={e => setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, has_artifact: e.target.checked, ...(e.target.checked ? {} : { artifact_name: undefined }) } : n))} />
+                                    Has Artifact
+                                </label>
+                                {selectedNode.has_artifact && (
+                                    <div className="mt-1">
+                                        <label className="block text-xs opacity-80">Artifact Name</label>
+                                        <input className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={selectedNode.artifact_name ?? ''}
+                                            onChange={e => setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, artifact_name: e.target.value } : n))}
+                                        />
+                                    </div>
+                                )}
+                            </div>
 								{bodyTypeById.get(selectedNode.filling_name)?.category !== 'star' && (
 									<div className="mt-1">
 										<label className="block text-xs opacity-80">Parent Star</label>
@@ -967,10 +1064,22 @@ export default function App() {
 												<option value="enemy_faction">enemy_faction</option>
 												<option value="friendly_faction">friendly_faction</option>
 											</select>
-											<label className="block text-sm">NPC Filling Name</label>
-											<input className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={selectedNode.ownership.npc_filling_name ?? ''}
+									<label className="block text-sm">NPC Filling Name</label>
+									<select className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={selectedNode.ownership.npc_filling_name ?? ''}
+										onChange={e => setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { ...n.ownership, npc_filling_name: e.target.value } } : n) )}
+									>
+										<option value="">custom...</option>
+										<option value="pirate">pirate</option>
+										<option value="jiskun_force">jiskun_force</option>
+										<option value="viturak_cabal">viturak_cabal</option>
+										<option value="pranast_united">pranast_united</option>
+									</select>
+									{(selectedNode.ownership.npc_filling_name ?? '') === '' && (
+											<input className="w-full mt-1 px-2 py-1 bg-neutral-900 border border-white/10 rounded" placeholder="custom NPC name"
+												value={selectedNode.ownership.npc_filling_name ?? ''}
 												onChange={e => setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { ...n.ownership, npc_filling_name: e.target.value } } : n) )}
 											/>
+										)}
 										</div>
 									)}
 								</div>
@@ -1085,6 +1194,13 @@ export default function App() {
 									<li>Drag nodes to reposition; enable <span className="opacity-100">Snap to Grid</span> for tidy layouts.</li>
 								</ul>
 							</div>
+					<div>
+						<div className="text-xs font-medium opacity-90">Node Extras</div>
+						<ul className="text-xs opacity-80 list-disc pl-5 space-y-1 mt-1">
+							<li>Rotation and loot chance are optional per-node fields.</li>
+							<li>Artifacts can be toggled and named to match in-game artifacts.</li>
+						</ul>
+					</div>
 							<div>
 								<div className="text-xs font-medium opacity-90">Linking & Lanes</div>
 								<ul className="text-xs opacity-80 list-disc pl-5 space-y-1 mt-1">
@@ -1134,7 +1250,6 @@ export default function App() {
 
 function buildScenarioJSON(nodes: NodeItem[], lanes: PhaseLane[], skybox: string, players: number) {
     // Build hierarchical structure expected by the game: stars as roots, child_nodes under stars
-    const nodeById = new Map<number, NodeItem>(nodes.map(n => [n.id, n]))
     const stars = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category === 'star')
     const nonStars = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category !== 'star')
 
@@ -1164,6 +1279,10 @@ function buildScenarioJSON(nodes: NodeItem[], lanes: PhaseLane[], skybox: string
             return toGameFillingName(n.filling_name)
         })(),
         position: [n.position.x, n.position.y] as [number, number],
+        ...(typeof n.rotation === 'number' ? { rotation: n.rotation } : {}),
+        ...(typeof n.chance_of_loot === 'number' ? { chance_of_loot: n.chance_of_loot } : {}),
+        ...(n.has_artifact ? { has_artifact: true } : {}),
+        ...(n.has_artifact && n.artifact_name ? { artifact_name: n.artifact_name } : {}),
         ...(n.ownership ? { ownership: n.ownership } : {}),
     })
 
@@ -1173,18 +1292,24 @@ function buildScenarioJSON(nodes: NodeItem[], lanes: PhaseLane[], skybox: string
     }))
 
     // lanes are preserved (ids and endpoints must stay consistent with flattened ids)
-    const phase_lanes = lanes.map(l => ({ id: l.id, node_a: l.node_a, node_b: l.node_b, ...(l.type ? { type: l.type } : {}) }))
+    const phase_lanes = lanes.map(l => ({
+        id: l.id,
+        node_a: l.node_a,
+        node_b: l.node_b,
+        ...(l.type === 'wormhole' ? { type: 'wormhole' as const } : {}),
+    }))
 
-    return { version: 1, skybox, root_nodes, phase_lanes, recommended_team_count: Math.max(1, Math.floor(players)) }
+    return { version: 1, skybox, root_nodes, phase_lanes }
 }
 
-function buildModMetaData(name: string, compatVersion: number) {
+function buildModMetaData(name: string, compatVersion: number, author?: string, shortDescOverride?: string) {
 	const sanitized = sanitizeName(name)
     const meta = {
         compatibility_version: compatVersion,
         display_version: "1.0.0",
         display_name: `${sanitized}Mod`,
-        short_description: `${name} created with sins2-mapmaker.com`,
+        short_description: (shortDescOverride && shortDescOverride.trim().length > 0) ? shortDescOverride : `${name} created with sins2-mapmaker.com`,
+        ...(author && author.trim().length > 0 ? { author } : {}),
         logos: {
             large_logo: "picture.png",
             small_logo: "picture.png",

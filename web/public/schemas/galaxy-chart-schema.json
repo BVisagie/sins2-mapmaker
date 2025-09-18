@@ -55,6 +55,8 @@
                 "chance_of_first_planet_bonus": { "type": "number", "minimum": 0, "maximum": 1 },
                 "chance_of_second_planet_bonus": { "type": "number", "minimum": 0, "maximum": 1 },
                 "orbit_speed_scalar": { "type": "number" },
+                "has_artifact": { "type": "boolean" },
+                "artifact_name": { "type": "string" },
                 "ignore_orbit_overlap_checks": { "type": "boolean" },
                 "chance_of_loot": { "type": "number", "minimum": 0, "maximum": 1 },
                 "loot_level": { "type": "integer", "minimum": 1 },
