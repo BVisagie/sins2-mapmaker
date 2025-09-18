@@ -5,7 +5,9 @@ import JSZip from 'jszip'
 import Ajv, { type ValidateFunction } from 'ajv'
 import './index.css'
 
-const APP_VERSION = '0.3.0'
+const APP_VERSION = '0.4.0'
+// Only these body types may be owned by players
+const PLAYER_OWNABLE_TYPES = new Set<string>(['planet_terran', 'planet_desert', 'planet_ferrous', 'planet_city'])
 const STORAGE_KEYS = {
 	version: 'sins2.appVersion',
 	project: 'sins2.project',
@@ -29,7 +31,7 @@ interface NodeItem {
 }
 interface PhaseLane { id: number; node_a: number; node_b: number; type?: 'normal' | 'star' | 'wormhole' }
 
-import { BODY_TYPES, DEFAULT_BODY_TYPE_ID, getBodyRadiusById, bodyTypeById, getBodyColorById } from './data/bodyTypes'
+import { BODY_TYPES, DEFAULT_BODY_TYPE_ID, getBodyRadiusById, bodyTypeById, getBodyColorById, toGameFillingName } from './data/bodyTypes'
 import type { BodyTypeCategory } from './data/bodyTypes'
 
 interface ProjectStateSnapshot {
@@ -48,7 +50,7 @@ export default function App() {
 	const [lanes, setLanes] = useState<PhaseLane[]>([])
 	const [selectedId, setSelectedId] = useState<number | null>(1)
 	const [scenarioName, setScenarioName] = useState<string>('MyScenario')
-	const [skybox, setSkybox] = useState<string>('default_skybox')
+	const [skybox, setSkybox] = useState<string>('skybox_random')
 	const [players, setPlayers] = useState<number>(2)
 	const [linkMode, setLinkMode] = useState<boolean>(false)
 	const [laneDeleteMode, setLaneDeleteMode] = useState<boolean>(false)
@@ -75,10 +77,7 @@ export default function App() {
 
 	const ajv = useMemo(() => new Ajv({ allErrors: true, strict: false }), [])
 	const [validateScenario, setValidateScenario] = useState<ValidateFunction | null>(null)
-	const [validateUniforms, setValidateUniforms] = useState<ValidateFunction | null>(null)
-	const [extScenarioValidator, setExtScenarioValidator] = useState<ValidateFunction | null>(null)
-	const [extUniformsValidator, setExtUniformsValidator] = useState<ValidateFunction | null>(null)
-	const [extValidatorStatus, setExtValidatorStatus] = useState<string>('No official schemas loaded')
+    const [validateUniforms, setValidateUniforms] = useState<ValidateFunction | null>(null)
 
 
 	// Bundled registry options grouped
@@ -129,8 +128,8 @@ export default function App() {
 				setNodes(withInitial)
 				setLanes(decoded.lanes)
 				setSelectedId(decoded.nodes[0]?.id ?? null)
-				if (typeof decoded.skybox === 'string') setSkybox(decoded.skybox)
-				if (typeof decoded.players === 'number') setPlayers(decoded.players)
+				// Skybox is fixed to skybox_random in the editor UI
+				if (typeof decoded.players === 'number') setPlayers(Math.max(2, Math.min(10, decoded.players)))
 				setScenarioName(decoded.scenarioName || 'SharedScenario')
 				nextNodeId.current = (decoded.nodes.reduce((m: number, n: NodeItem) => Math.max(m, n.id), 0) || 0) + 1
 				nextLaneId.current = (decoded.lanes.reduce((m: number, l: PhaseLane) => Math.max(m, l.id), 0) || 0) + 1
@@ -164,8 +163,8 @@ export default function App() {
 				nextLaneId.current = (snap.lanes.reduce((m, l) => Math.max(m, l.id), 0) || 0) + 1
 			}
 			if (typeof snap.scenarioName === 'string') setScenarioName(snap.scenarioName)
-			if (typeof snap.skybox === 'string') setSkybox(snap.skybox)
-			if (typeof snap.players === 'number') setPlayers(snap.players)
+			// Skybox is fixed to skybox_random in the editor UI
+			if (typeof snap.players === 'number') setPlayers(Math.max(2, Math.min(10, snap.players)))
 			if (snap.grid) {
 				setShowGrid(!!snap.grid.showGrid)
 				setSnapToGrid(!!snap.grid.snapToGrid)
@@ -199,6 +198,17 @@ export default function App() {
 			const a = nodes.find(n => n.id === l.node_a)
 			const b = nodes.find(n => n.id === l.node_b)
 			if (!a || !b) w.push(`Lane ${l.id} references a missing node`)
+			// Star lane type constraints
+			if (a && b && l.type === 'star') {
+				const isAStar = bodyTypeById.get(a.filling_name)?.category === 'star'
+				const isBStar = bodyTypeById.get(b.filling_name)?.category === 'star'
+				if (!(isAStar && isBStar)) w.push(`Lane ${l.id} type star must connect two stars`)
+			}
+			if (a && b && l.type === 'wormhole') {
+				const aName = toGameFillingName(a.filling_name)
+				const bName = toGameFillingName(b.filling_name)
+				if (!(aName === 'wormhole_fixture' && bName === 'wormhole_fixture')) w.push(`Lane ${l.id} type wormhole must connect two wormhole fixtures`)
+			}
 		}
 		// Duplicate lanes
 		const lanePairs = new Set<string>()
@@ -212,6 +222,29 @@ export default function App() {
 			if (n.ownership?.player_index && (n.ownership.player_index < 1 || n.ownership.player_index > players)) {
 				w.push(`Node ${n.id} player_index out of range 1..${players}`)
 			}
+		}
+		// Each player may only own one non-star planet (home)
+		const ownedByPlayer = new Map<number, number[]>()
+		nodes.forEach(n => {
+			const cat = bodyTypeById.get(n.filling_name)?.category
+			const p = n.ownership?.player_index
+			if (cat === 'star') return
+			// Only allow specific player-ownable types
+			if (typeof p === 'number' && p >= 1 && !PLAYER_OWNABLE_TYPES.has(n.filling_name)) {
+				w.push(`Node ${n.id} (${n.filling_name}) cannot be player-owned. Allowed: terran, desert, ferrous, city`)
+			}
+			if (typeof p === 'number' && p >= 1) {
+				if (!ownedByPlayer.has(p)) ownedByPlayer.set(p, [])
+				ownedByPlayer.get(p)!.push(n.id)
+			}
+		})
+		for (const [p, ids] of ownedByPlayer) {
+			if (ids.length > 1) w.push(`Player ${p} owns multiple planets: ${ids.join(', ')} (only one allowed)`) 
+		}
+
+		// Minimum players validation
+		if (players < 2) {
+			w.push('Players must be at least 2')
 		}
 		// Star/body constraints
 		const starIds = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category === 'star').map(n => n.id)
@@ -275,6 +308,15 @@ export default function App() {
 				}
 			}
 		}
+		// Derive flags consistency
+		const hasAnyWormholeNode = nodes.some(n => toGameFillingName(n.filling_name) === 'wormhole_fixture')
+		const hasAnyWormholeLane = lanes.some(l => l.type === 'wormhole')
+		if (!hasAnyWormholeNode && !hasAnyWormholeLane) {
+			// ok if none
+		} else {
+			// Informative only; uniforms flag checked on export
+		}
+
 		setWarnings(w)
 	}, [lanes, nodes, players])
 
@@ -545,21 +587,7 @@ export default function App() {
 				return
 			}
 		}
-		// If external/official validators provided, enforce them too
-		if (extScenarioValidator) {
-			const ok = extScenarioValidator(scenario)
-			if (!ok) {
-				setAjvError('Official scenario schema errors:\n' + JSON.stringify(extScenarioValidator.errors, null, 2))
-				return
-			}
-		}
-		if (extUniformsValidator) {
-			const okU = extUniformsValidator(uniformsObj)
-			if (!okU) {
-				setAjvError('Official uniforms schema errors:\n' + JSON.stringify(extUniformsValidator.errors, null, 2))
-				return
-			}
-		}
+        // External/official schema validation removed
 		if (warnings.length > 0) {
 			setAjvError('Fix warnings before export:\n' + warnings.join('\n'))
 			return
@@ -568,19 +596,81 @@ export default function App() {
 
 		const zip = new JSZip()
 		const sanitized = sanitizeName(scenarioName)
+		const scenarioFileBase = sanitized.toLowerCase()
 		const root = `${sanitized}Mod/`
 
 		zip.file(`${root}.mod_meta_data`, buildModMetaData(scenarioName))
 		zip.file(`${root}scenario.uniforms`, JSON.stringify(uniformsObj, null, 2))
-		zip.file(`${root}scenarios/${sanitized}.scenario`, JSON.stringify(scenario, null, 2))
+		zip.file(`${root}scenarios/${scenarioFileBase}.scenario`, JSON.stringify(scenario, null, 2))
+
+		// Add a PNG snapshot of the map with player numbers
+		try {
+			const png = await createMapPictureBlob()
+			if (png) zip.file(`${root}picture.png`, png)
+		} catch {}
 
 		const blob = await zip.generateAsync({ type: 'blob' })
 		const url = URL.createObjectURL(blob)
 		const a = document.createElement('a')
 		a.href = url
-		a.download = `${sanitized}Mod.zip`
+		const modZipBase = sanitized.toLowerCase()
+		a.download = `${modZipBase}.zip`
 		a.click()
 		URL.revokeObjectURL(url)
+	}
+
+	const createMapPictureBlob = async (): Promise<Blob | null> => {
+		const stage: any = stageRef.current
+		if (!stage || !stage.toDataURL) return null
+		const pixelRatio = 2
+		const dataUrl: string = stage.toDataURL({ pixelRatio })
+		return await new Promise<Blob | null>((resolve) => {
+			const baseImg = new Image()
+			baseImg.onload = () => {
+				const canvas = document.createElement('canvas')
+				canvas.width = baseImg.width
+				canvas.height = baseImg.height
+				const ctx = canvas.getContext('2d')
+				if (!ctx) { resolve(null); return }
+				// Ensure solid black background
+				ctx.fillStyle = '#000000'
+				ctx.fillRect(0, 0, canvas.width, canvas.height)
+				ctx.drawImage(baseImg, 0, 0)
+				// Determine player home planets (first body per player index)
+				const homeByPlayer = new Map<number, { x: number; y: number }>()
+				nodes.forEach(n => {
+					const cat = bodyTypeById.get(n.filling_name)?.category
+					const p = n.ownership?.player_index
+					if (cat === 'star') return
+					if (typeof p === 'number' && p >= 1 && !homeByPlayer.has(p)) {
+						homeByPlayer.set(p, { x: n.position.x, y: n.position.y })
+					}
+				})
+				// Draw numbered badges near homes
+				const badgeRadius = 10 * pixelRatio
+				const badgeOffsetX = 12 * pixelRatio
+				const badgeOffsetY = -12 * pixelRatio
+				ctx.textAlign = 'center'
+				ctx.textBaseline = 'middle'
+				ctx.font = `${12 * pixelRatio}px sans-serif`
+				for (const [playerIdx, pos] of homeByPlayer) {
+					const x = pos.x * pixelRatio + badgeOffsetX
+					const y = pos.y * pixelRatio + badgeOffsetY
+					ctx.beginPath()
+					ctx.arc(x, y, badgeRadius, 0, Math.PI * 2)
+					ctx.fillStyle = 'rgba(0,0,0,0.85)'
+					ctx.fill()
+					ctx.lineWidth = 2 * pixelRatio
+					ctx.strokeStyle = '#ffffff'
+					ctx.stroke()
+					ctx.fillStyle = '#ffffff'
+					ctx.fillText(String(playerIdx), x, y)
+				}
+				canvas.toBlob((blob) => resolve(blob), 'image/png')
+			}
+			baseImg.onerror = () => resolve(null)
+			baseImg.src = dataUrl
+		})
 	}
 
 	const onShare = async () => {
@@ -596,6 +686,40 @@ export default function App() {
 		}
 	}
 
+	const resetProject = () => {
+		const ok = confirm('Reset to a brand new scenario? This will clear the current project.')
+		if (!ok) return
+		// Clear persisted project state and share URL
+		try { localStorage.removeItem(STORAGE_KEYS.project) } catch {}
+		const url = new URL(window.location.href)
+		if (url.searchParams.has('s')) {
+			url.searchParams.delete('s')
+			window.history.replaceState(null, '', url.toString())
+		}
+		// Reset in-memory state
+		nextNodeId.current = 2
+		nextLaneId.current = 1
+		setNodes([{ id: 1, filling_name: 'star', position: { x: 360, y: 280 }, initial_category: 'star' }])
+		setLanes([])
+		setSelectedId(1)
+		setScenarioName('MyScenario')
+		setSkybox('skybox_random')
+		setPlayers(2)
+		setLinkMode(false)
+		setLaneDeleteMode(false)
+		setLinkStartId(null)
+		setNewLaneType('normal')
+		setNewBodyParentStarId(null)
+		setReassignStarModalOpen(false)
+		setReassignSourceStarId(null)
+		setReassignTargetStarId(null)
+		setShowGrid(true)
+		setSnapToGrid(true)
+		setGridSize(40)
+		setWarnings([])
+		setAjvError(null)
+	}
+
 	const selectedNode = nodes.find(n => n.id === selectedId) || null
 
 	const stageWidth = canvasSize.width
@@ -606,6 +730,7 @@ export default function App() {
 			<div className="h-12 border-b border-white/10 px-4 flex items-center justify-between">
 				<div className="font-semibold tracking-wide">Sins II Scenario Editor</div>
 				<div className="flex items-center gap-2">
+					<button className="px-3 py-1 rounded border border-white/20 bg-neutral-900" onClick={resetProject}>Reset</button>
 					<button className="px-3 py-1 rounded border border-white/20 bg-neutral-900" onClick={onShare}>Share</button>
 					<button className="px-4 py-1.5 rounded bg-white text-black" onClick={exportZip}>Export</button>
 				</div>
@@ -616,11 +741,16 @@ export default function App() {
 						<div className="space-y-2 bg-neutral-900/30 border border-white/10 rounded p-3">
 							<div className="font-medium text-sm">Scenario</div>
 							<label className="block text-xs opacity-80">Scenario Name</label>
-							<input className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={scenarioName} onChange={e => setScenarioName(e.target.value)} />
-							<label className="block text-xs opacity-80 mt-2">Skybox</label>
-							<input className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={skybox} onChange={e => setSkybox(e.target.value)} />
-							<label className="block text-xs opacity-80 mt-2">Players</label>
-							<input type="number" min={0} className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={players} onChange={e => setPlayers(Math.max(0, Number(e.target.value) || 0))} />
+						<input className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={scenarioName} onChange={e => {
+							const raw = e.target.value
+							// Allow only alphanumeric and spaces; strip others
+							const cleaned = raw.replace(/[^A-Za-z0-9 ]+/g, '')
+							setScenarioName(cleaned)
+						}} />
+						<div className="block text-xs opacity-80 mt-2">Skybox</div>
+						<div className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded opacity-60 select-none">skybox_random</div>
+						<label className="block text-xs opacity-80 mt-2">Players</label>
+						<input type="number" min={2} max={10} className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={players} onChange={e => setPlayers(Math.max(2, Math.min(10, Number(e.target.value) || 2)))} />
 						</div>
 
 						<div className="space-y-2 bg-neutral-900/30 border border-white/10 rounded p-3">
@@ -767,17 +897,34 @@ export default function App() {
 
 						<div className="mt-2">
 									<div className="text-sm">Ownership</div>
-									<select
+						<select
 										className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded"
 										value={selectedNode.ownership?.player_index ? 'player' : selectedNode.ownership?.npc_filling_type ? 'npc' : 'none'}
 										onChange={e => {
 											const mode = e.target.value as 'none' | 'player' | 'npc'
-											setNodes(prev => prev.map(n => {
-												if (n.id !== selectedNode.id) return n
-												if (mode === 'none') return { ...n, ownership: undefined }
-												if (mode === 'player') return { ...n, ownership: { player_index: 1 } }
-												return { ...n, ownership: { npc_filling_type: 'militia', npc_filling_name: 'default' } }
-											}) )
+								if (mode === 'player') {
+									// Enforce player-ownable whitelist
+									if (!PLAYER_OWNABLE_TYPES.has(selectedNode.filling_name)) {
+										alert('Only Terran, Desert, Ferrous, or City planets can be player-owned.')
+										return
+									}
+									// Assign the first available player index (1..players) not used by other non-star planets
+									const used = new Set<number>()
+									nodes.forEach(m => {
+										if (m.id === selectedNode.id) return
+										const cat = bodyTypeById.get(m.filling_name)?.category
+										const p = m.ownership?.player_index
+										if (cat !== 'star' && typeof p === 'number' && p >= 1) used.add(p)
+									})
+									let assign: number | null = null
+									for (let i = 1; i <= players; i++) { if (!used.has(i)) { assign = i; break } }
+									if (assign == null) { alert('All player slots are already assigned to other planets.'); return }
+									setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { player_index: assign! } } : n))
+									return
+								}
+								if (mode === 'none') { setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: undefined } : n)); return }
+								// npc
+								setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { npc_filling_type: 'militia', npc_filling_name: 'default' } } : n))
 										}}
 									>
 										<option value="none">Unowned</option>
@@ -788,9 +935,16 @@ export default function App() {
 									{selectedNode.ownership?.player_index != null && (
 										<div className="space-y-1 mt-2">
 											<label className="block text-sm">Player Index (1..{players})</label>
-											<input type="number" min={1} max={players} className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={selectedNode.ownership.player_index}
-												onChange={e => setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { ...n.ownership, player_index: Math.max(1, Math.min(players, Number(e.target.value) || 1)) } } : n) )}
-											/>
+							<input type="number" min={1} max={players} className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={selectedNode.ownership.player_index}
+									onChange={e => setNodes(prev => {
+									// Enforce ownable types when setting player index directly
+									if (!PLAYER_OWNABLE_TYPES.has(selectedNode.filling_name)) { alert('Only Terran, Desert, Ferrous, or City planets can be player-owned.'); return prev }
+									const newIdx = Math.max(1, Math.min(players, Number(e.target.value) || 1))
+									const conflict = prev.some(m => m.id !== selectedNode.id && bodyTypeById.get(m.filling_name)?.category !== 'star' && m.ownership?.player_index === newIdx)
+									if (conflict) { alert(`Player ${newIdx} is already assigned to another planet.`); return prev }
+									return prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { ...n.ownership, player_index: newIdx } } : n)
+								})}
+							/>
 										</div>
 									)}
 
@@ -910,44 +1064,7 @@ export default function App() {
 							) : (
 								<div className="text-xs opacity-70">No validation errors.</div>
 							)}
-							<div className="mt-2">
-								<div className="text-xs font-medium opacity-90">Official Schemas (Optional)</div>
-								<div className="text-xs opacity-70 mb-1">Load Sins II official JSON Schemas (BYO) to validate against the game's requirements. These are not bundled.</div>
-								<div className="flex flex-col gap-2">
-									<label className="text-xs">Scenario Schema
-										<input type="file" accept="application/json" className="block mt-1 text-xs" onChange={async e => {
-											const file = e.target.files?.[0]
-											if (!file) return
-											try {
-												const text = await file.text()
-												const schema = JSON.parse(text)
-												const v = ajv.compile(schema)
-												setExtScenarioValidator(() => v)
-												setExtValidatorStatus('Official scenario schema loaded')
-											} catch {
-												alert('Failed to load scenario schema file')
-											}
-										}} />
-									</label>
-									<label className="text-xs">Uniforms Schema
-										<input type="file" accept="application/json" className="block mt-1 text-xs" onChange={async e => {
-											const file = e.target.files?.[0]
-											if (!file) return
-											try {
-												const text = await file.text()
-												const schema = JSON.parse(text)
-												const v = ajv.compile(schema)
-												setExtUniformsValidator(() => v)
-												setExtValidatorStatus(prev => prev.includes('Scenario') ? 'Official scenario and uniforms schemas loaded' : 'Official uniforms schema loaded')
-											} catch {
-												alert('Failed to load uniforms schema file')
-											}
-										}} />
-									</label>
-									<button className="px-2 py-1 rounded border border-white/20 bg-neutral-900 text-xs w-max" onClick={() => { setExtScenarioValidator(null); setExtUniformsValidator(null); setExtValidatorStatus('No official schemas loaded') }}>Clear Official Schemas</button>
-									<div className="text-xs opacity-70">{extValidatorStatus}</div>
-								</div>
-							</div>
+                            {/* External Official Schemas section removed */}
 						</div>
 
 						<div className="space-y-3 bg-neutral-900/30 border border-white/10 rounded p-3">
@@ -1008,26 +1125,49 @@ export default function App() {
 }
 
 function buildScenarioJSON(nodes: NodeItem[], lanes: PhaseLane[], skybox: string) {
-	// Flatten systems into a single scenario: offset lane IDs to avoid collisions
-	const allNodes: NodeItem[] = []
-	const allLanes: PhaseLane[] = []
-	for (const n of nodes) {
-		allNodes.push(n)
-	}
-	for (const l of lanes) {
-		allLanes.push(l)
-	}
-	return {
-		version: 1,
-		skybox,
-		root_nodes: allNodes.map(n => ({
-			id: n.id,
-			filling_name: n.filling_name,
-			position: [n.position.x, n.position.y],
-			...(n.ownership ? { ownership: n.ownership } : {}),
-		})),
-		phase_lanes: allLanes.map(l => ({ id: l.id, node_a: l.node_a, node_b: l.node_b, ...(l.type ? { type: l.type } : {}) })),
-	}
+    // Build hierarchical structure expected by the game: stars as roots, child_nodes under stars
+    const nodeById = new Map<number, NodeItem>(nodes.map(n => [n.id, n]))
+    const stars = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category === 'star')
+    const nonStars = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category !== 'star')
+
+    // group non-stars under their parent star
+    const childrenByStar = new Map<number, NodeItem[]>()
+    for (const s of stars) childrenByStar.set(s.id, [])
+    for (const b of nonStars) {
+        const sid = b.parent_star_id
+        if (sid == null || !childrenByStar.has(sid)) continue
+        childrenByStar.get(sid)!.push(b)
+    }
+
+    // Determine one home planet per player index if present
+    const playerHomePlanetByIndex = new Map<number, number>()
+    for (const n of nonStars) {
+        const idx = n.ownership?.player_index
+        if (typeof idx === 'number' && idx >= 1) {
+            if (!playerHomePlanetByIndex.has(idx)) playerHomePlanetByIndex.set(idx, n.id)
+        }
+    }
+
+    const toGameNode = (n: NodeItem) => ({
+        id: n.id,
+        filling_name: ((): string => {
+            const idx = n.ownership?.player_index
+            if (typeof idx === 'number' && playerHomePlanetByIndex.get(idx) === n.id) return 'player_home_planet'
+            return toGameFillingName(n.filling_name)
+        })(),
+        position: [n.position.x, n.position.y] as [number, number],
+        ...(n.ownership ? { ownership: n.ownership } : {}),
+    })
+
+    const root_nodes = stars.map(s => ({
+        ...toGameNode(s),
+        child_nodes: (childrenByStar.get(s.id) || []).map(toGameNode),
+    }))
+
+    // lanes are preserved (ids and endpoints must stay consistent with flattened ids)
+    const phase_lanes = lanes.map(l => ({ id: l.id, node_a: l.node_a, node_b: l.node_b, ...(l.type ? { type: l.type } : {}) }))
+
+    return { version: 1, skybox, root_nodes, phase_lanes, recommended_team_count: 1 }
 }
 
 function buildModMetaData(name: string) {
@@ -1036,13 +1176,13 @@ function buildModMetaData(name: string) {
 }
 
 function buildScenarioUniformsObject(scenarioName: string) {
-	return {
-		dlc_multiplayer_scenarios: [],
-		dlc_scenarios: [],
-		fake_server_scenarios: [],
-		scenarios: [scenarioName],
-		version: 1,
-	}
+    return {
+        dlc_multiplayer_scenarios: [],
+        dlc_scenarios: [],
+        fake_server_scenarios: [],
+        scenarios: [scenarioName],
+        version: 1,
+    }
 }
 
 function renderGrid(width: number, height: number, size: number) {

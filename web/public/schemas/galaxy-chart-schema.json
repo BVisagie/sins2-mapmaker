@@ -13,7 +13,8 @@
         "phase_lanes": {
             "type": "array",
             "items": { "$ref": "#/$defs/phase_lane" }
-        }
+        },
+        "recommended_team_count": { "type": "integer" }
     },
     "required": [
         "skybox",
@@ -48,7 +49,22 @@
                 "filling_name": { "type": "string" },
                 "position": { "$ref": "#/$defs/point" },
                 "ownership": { "$ref": "#/$defs/ownership" },
-                "parent_star_id": { "type": "integer" }
+                "parent_star_id": { "type": "integer" },
+                "rotation": { "type": "number" },
+                "chance_of_retrograde_orbit": { "type": "number", "minimum": 0, "maximum": 1 },
+                "chance_of_first_planet_bonus": { "type": "number", "minimum": 0, "maximum": 1 },
+                "chance_of_second_planet_bonus": { "type": "number", "minimum": 0, "maximum": 1 },
+                "orbit_speed_scalar": { "type": "number" },
+                "ignore_orbit_overlap_checks": { "type": "boolean" },
+                "chance_of_loot": { "type": "number", "minimum": 0, "maximum": 1 },
+                "loot_level": { "type": "integer", "minimum": 1 },
+                "original_parent_id": { "type": "integer" },
+                "sync_orbit_to_parent": { "type": "boolean" },
+                "inherit_original_parent_orbit_direction": { "type": "boolean" },
+                "child_nodes": {
+                    "type": "array",
+                    "items": { "$ref": "#/$defs/node" }
+                }
             },
             "required": ["id", "filling_name", "position"],
             "unevaluatedProperties": false

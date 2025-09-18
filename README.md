@@ -42,7 +42,7 @@ Open the app at the printed URL.
 - Share
   - Share button copies a URL encoding the current map
 - Export
-  - Validates `.scenario` and `scenario.uniforms` via AJV
+  - Validates `.scenario` and `scenario.uniforms` via AJV against bundled clean-room schemas
   - Blocks export if warnings exist (self-loop, duplicates, missing node references, invalid player index)
   - Downloads `<ScenarioName>Mod.zip`
 
@@ -72,7 +72,7 @@ These schemas are original to this repository and used solely to validate the ed
 
 Notes:
 
-- The app does not bundle or distribute any files from the official mod tools. If users need official schemas, obtain them separately. Reference repository: `https://github.com/StardockCorp/sins2modtools`.
+- The app does not bundle or use any files from the official mod tools. External/original "Official Schemas" upload-and-validate functionality has been removed to keep this project independent.
 - The editor exports JSON conforming to the clean-room schemas above; compatibility targets the game’s general expectations but does not rely on proprietary definitions.
 
 ## Build & Preview
