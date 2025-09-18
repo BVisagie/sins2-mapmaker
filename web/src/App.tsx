@@ -25,10 +25,12 @@ interface NodeItem {
 	position: Point
 	ownership?: NodeOwnership
 	parent_star_id?: number
+	initial_category: BodyTypeCategory
 }
 interface PhaseLane { id: number; node_a: number; node_b: number; type?: 'normal' | 'star' | 'wormhole' }
 
-import { BODY_TYPES, DEFAULT_BODY_TYPE_ID, getBodyRadiusById, bodyTypeById } from './data/bodyTypes'
+import { BODY_TYPES, DEFAULT_BODY_TYPE_ID, getBodyRadiusById, bodyTypeById, getBodyColorById } from './data/bodyTypes'
+import type { BodyTypeCategory } from './data/bodyTypes'
 
 interface ProjectStateSnapshot {
 	nodes: NodeItem[]
@@ -41,7 +43,7 @@ interface ProjectStateSnapshot {
 
 export default function App() {
 	const [nodes, setNodes] = useState<NodeItem[]>([
-		{ id: 1, filling_name: 'star', position: { x: 360, y: 280 } },
+		{ id: 1, filling_name: 'star', position: { x: 360, y: 280 }, initial_category: 'star' },
 	])
 	const [lanes, setLanes] = useState<PhaseLane[]>([])
 	const [selectedId, setSelectedId] = useState<number | null>(1)
@@ -54,6 +56,14 @@ export default function App() {
 	const [newLaneType, setNewLaneType] = useState<'normal' | 'star' | 'wormhole'>('normal')
 	const [ajvError, setAjvError] = useState<string | null>(null)
 	const [warnings, setWarnings] = useState<string[]>([])
+
+	// Parent star selection for creating new non-star bodies
+	const [newBodyParentStarId, setNewBodyParentStarId] = useState<number | null>(null)
+
+	// Modal state for reassigning bodies when deleting a star
+	const [reassignStarModalOpen, setReassignStarModalOpen] = useState<boolean>(false)
+	const [reassignSourceStarId, setReassignSourceStarId] = useState<number | null>(null)
+	const [reassignTargetStarId, setReassignTargetStarId] = useState<number | null>(null)
 
 	const [showGrid, setShowGrid] = useState<boolean>(true)
 	const [snapToGrid, setSnapToGrid] = useState<boolean>(true)
@@ -112,7 +122,11 @@ export default function App() {
 			const decoded = decodeState(s) as any
 			if (!decoded) return
 			if (Array.isArray(decoded.nodes) && Array.isArray(decoded.lanes)) {
-				setNodes(decoded.nodes)
+				const withInitial: NodeItem[] = decoded.nodes.map((n: any) => {
+					const cat = bodyTypeById.get(n.filling_name)?.category as BodyTypeCategory | undefined
+					return { ...n, initial_category: n.initial_category ?? (cat ?? 'planet') }
+				})
+				setNodes(withInitial)
 				setLanes(decoded.lanes)
 				setSelectedId(decoded.nodes[0]?.id ?? null)
 				if (typeof decoded.skybox === 'string') setSkybox(decoded.skybox)
@@ -140,7 +154,11 @@ export default function App() {
 		try {
 			const snap = JSON.parse(saved) as ProjectStateSnapshot
 			if (Array.isArray(snap.nodes) && Array.isArray(snap.lanes)) {
-				setNodes(snap.nodes)
+				const withInitial: NodeItem[] = snap.nodes.map((n: any) => {
+					const cat = bodyTypeById.get(n.filling_name)?.category as BodyTypeCategory | undefined
+					return { ...n, initial_category: n.initial_category ?? (cat ?? 'planet') }
+				})
+				setNodes(withInitial)
 				setLanes(snap.lanes)
 				nextNodeId.current = (snap.nodes.reduce((m, n) => Math.max(m, n.id), 0) || 0) + 1
 				nextLaneId.current = (snap.lanes.reduce((m, l) => Math.max(m, l.id), 0) || 0) + 1
@@ -195,21 +213,96 @@ export default function App() {
 				w.push(`Node ${n.id} player_index out of range 1..${players}`)
 			}
 		}
-		// Star/planet constraints
+		// Star/body constraints
 		const starIds = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category === 'star').map(n => n.id)
 		if (starIds.length > 15) w.push(`Too many stars: ${starIds.length} (max 15)`) 
-		const planets = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category === 'planet')
-		for (const sid of starIds) {
-			const count = planets.filter(p => p.parent_star_id === sid).length
-			if (count > 100) w.push(`Star ${sid} has ${count} planets (max 100)`)
+		const nonStars = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category !== 'star')
+		// If there are bodies but no stars at all
+		if (nonStars.length > 0 && starIds.length === 0) {
+			w.push('Bodies exist but there are no stars. Add a star and assign parents.')
 		}
-		if (starIds.length > 0) {
-			for (const p of planets) {
-				if (!p.parent_star_id) w.push(`Planet node ${p.id} has no parent_star_id`)
+		// Per-star body counts
+		for (const sid of starIds) {
+			const count = nonStars.filter(p => p.parent_star_id === sid).length
+			if (count > 100) w.push(`Star ${sid} has ${count} bodies (max 100)`)
+		}
+		// Each non-star must have a valid parent star
+		for (const n of nonStars) {
+			if (n.parent_star_id == null) {
+				w.push(`Body node ${n.id} has no parent_star_id`)
+				continue
+			}
+			if (!starIds.includes(n.parent_star_id)) {
+				w.push(`Body node ${n.id} parent_star_id ${n.parent_star_id} does not reference an existing star`)
+			}
+		}
+
+		// Reachability: every non-star must be reachable from its parent star via lanes
+		if (lanes.length > 0 && starIds.length > 0) {
+			// Build adjacency map (undirected)
+			const nodeExists = new Set(nodes.map(n => n.id))
+			const adj = new Map<number, number[]>()
+			const addEdge = (a: number, b: number) => {
+				if (!nodeExists.has(a) || !nodeExists.has(b)) return
+				if (!adj.has(a)) adj.set(a, [])
+				if (!adj.has(b)) adj.set(b, [])
+				adj.get(a)!.push(b)
+				adj.get(b)!.push(a)
+			}
+			for (const l of lanes) addEdge(l.node_a, l.node_b)
+
+			// Precompute reachability per star
+			const reachableByStar = new Map<number, Set<number>>()
+			for (const sid of starIds) {
+				const visited = new Set<number>()
+				const queue: number[] = [sid]
+				visited.add(sid)
+				while (queue.length > 0) {
+					const cur = queue.shift()!
+					const neighbors = adj.get(cur) || []
+					for (const nb of neighbors) {
+						if (!visited.has(nb)) { visited.add(nb); queue.push(nb) }
+					}
+				}
+				reachableByStar.set(sid, visited)
+			}
+
+			for (const n of nonStars) {
+				if (!n.parent_star_id) continue
+				const reach = reachableByStar.get(n.parent_star_id)
+				if (!reach || !reach.has(n.id)) {
+					w.push(`Body node ${n.id} is not reachable from its parent star ${n.parent_star_id}`)
+				}
 			}
 		}
 		setWarnings(w)
 	}, [lanes, nodes, players])
+
+	// Derive current star nodes for convenience
+	const starNodes = useMemo(() => nodes.filter(n => bodyTypeById.get(n.filling_name)?.category === 'star'), [nodes])
+
+	// Keep the parent star selector valid and helpful
+	useEffect(() => {
+		// If no stars, clear selection
+		if (starNodes.length === 0) {
+			if (newBodyParentStarId != null) setNewBodyParentStarId(null)
+			return
+		}
+		// If current selection is not a star anymore, choose a sensible default
+		const selectionStillValid = newBodyParentStarId != null && starNodes.some(s => s.id === newBodyParentStarId)
+		if (!selectionStillValid) {
+			// Prefer currently selected node if it's a star
+			const selected = selectedId != null ? nodes.find(n => n.id === selectedId) : undefined
+			const selectedIsStar = selected && bodyTypeById.get(selected.filling_name)?.category === 'star'
+			if (selectedIsStar) {
+				setNewBodyParentStarId(selected!.id)
+			} else if (starNodes.length === 1) {
+				setNewBodyParentStarId(starNodes[0].id)
+			} else {
+				setNewBodyParentStarId(null)
+			}
+		}
+	}, [starNodes, selectedId, nodes, newBodyParentStarId])
 
 	// Track canvas size responsively
 	useEffect(() => {
@@ -240,24 +333,29 @@ export default function App() {
 				return
 			}
 		}
-		// If adding a planet, set parent_star_id to currently selected star if any, and enforce ≤100 per star
+		// If adding a non-star, require a parent star selection and enforce ≤100 bodies per star
 		let parent_star_id: number | undefined = undefined
 		if (!isStar) {
-			const selected = selectedId != null ? nodes.find(n => n.id === selectedId) : undefined
-			const selectedIsStar = selected && bodyTypeById.get(selected.filling_name)?.category === 'star'
-			if (selectedIsStar) parent_star_id = selected!.id
-			if (parent_star_id != null) {
-				const count = nodes.filter(n => n.parent_star_id === parent_star_id).length
-				if (count >= 100) {
-					alert('Planet limit per star reached (100).')
-					return
-				}
+			if (starNodes.length === 0) {
+				alert('Add a star first before adding bodies.')
+				return
+			}
+			if (newBodyParentStarId == null) {
+				alert('Select a Parent Star in the Tools panel before adding a body.')
+				return
+			}
+			parent_star_id = newBodyParentStarId
+			const count = nodes.filter(n => n.parent_star_id === parent_star_id).length
+			if (count >= 100) {
+				alert('Body limit per star reached (100).')
+				return
 			}
 		}
 		const newNode: NodeItem = {
 			id,
 			filling_name: filling,
 			position: { x: 200 + Math.random() * 600, y: 160 + Math.random() * 400 },
+			initial_category: (isStar ? 'star' : (bodyTypeById.get(filling)?.category as BodyTypeCategory || 'planet')),
 			...(parent_star_id != null ? { parent_star_id } : {}),
 		}
 		setNodes(prev => [...prev, newNode])
@@ -266,15 +364,63 @@ export default function App() {
 
 	const removeSelected = () => {
 		if (selectedId == null) return
+		const selected = nodes.find(n => n.id === selectedId)
+		if (!selected) return
+		const category = bodyTypeById.get(selected.filling_name)?.category
+		const hasLaneLinks = lanes.some(l => l.node_a === selectedId || l.node_b === selectedId)
+
+		if (category === 'star') {
+			const dependentBodies = nodes.filter(n => n.parent_star_id === selected.id && bodyTypeById.get(n.filling_name)?.category !== 'star')
+			const otherStars = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category === 'star' && n.id !== selected.id)
+			if (dependentBodies.length > 0) {
+				if (otherStars.length === 0) {
+					alert('Cannot delete the only star while bodies are assigned to it. Create another star or reassign bodies first.')
+					return
+				}
+				// Open modal to select reassignment star
+				setReassignSourceStarId(selected.id)
+				const defaultTarget = (newBodyParentStarId != null && newBodyParentStarId !== selected.id && otherStars.some(s => s.id === newBodyParentStarId)) ? newBodyParentStarId : otherStars[0].id
+				setReassignTargetStarId(defaultTarget)
+				setReassignStarModalOpen(true)
+				return
+			}
+			// No dependent bodies; confirm if linked by lanes
+			if (hasLaneLinks) {
+				const ok = confirm('Delete this star and remove its connected lanes?')
+				if (!ok) return
+			}
+			setNodes(prev => prev.filter(n => n.id !== selectedId))
+			setLanes(prev => prev.filter(l => l.node_a !== selectedId && l.node_b !== selectedId))
+			setSelectedId(null)
+			return
+		}
+
+		// Deleting a non-star body
+		if (hasLaneLinks) {
+			const ok = confirm('Delete this body and remove its connected lanes?')
+			if (!ok) return
+		}
 		setNodes(prev => prev.filter(n => n.id !== selectedId))
 		setLanes(prev => prev.filter(l => l.node_a !== selectedId && l.node_b !== selectedId))
-		// If removing a star, clear parent_star_id on planets referencing it
-		const removed = nodes.find(n => n.id === selectedId)
-		if (removed && bodyTypeById.get(removed.filling_name)?.category === 'star') {
-			setNodes(prev => prev.map(n => n.parent_star_id === removed.id ? { ...n, parent_star_id: undefined } : n))
-		}
 		setSelectedId(null)
 	}
+
+	// Keyboard: Delete key removes selected node (with confirmations/rules)
+	useEffect(() => {
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.key !== 'Delete') return
+			const target = e.target as HTMLElement | null
+			const tag = target?.tagName
+			const inEditable = !!(target && (target.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'))
+			if (inEditable) return
+			if (selectedId != null) {
+				e.preventDefault()
+				removeSelected()
+			}
+		}
+		window.addEventListener('keydown', onKeyDown)
+		return () => window.removeEventListener('keydown', onKeyDown)
+	}, [selectedId, removeSelected])
 
 	const toggleLinkMode = () => {
 		setLinkMode(v => !v)
@@ -492,7 +638,21 @@ export default function App() {
 									<option value="star">New Lane: star</option>
 									<option value="wormhole">New Lane: wormhole</option>
 								</select>
-								<button className="px-3 py-1 rounded border border-white/20 bg-neutral-900" onClick={() => addNode(undefined)}>Add Body</button>
+						<select
+							className="px-2 py-1 rounded border border-white/20 bg-neutral-900 min-w-40"
+							value={newBodyParentStarId ?? ''}
+							disabled={starNodes.length === 0}
+							onChange={e => {
+								const v = e.target.value
+								setNewBodyParentStarId(v === '' ? null : Number(v))
+							}}
+						>
+							<option value="">{starNodes.length === 0 ? 'No stars yet' : 'Parent Star: choose'}</option>
+							{starNodes.map(s => (
+								<option key={s.id} value={s.id}>Star {s.id}</option>
+							))}
+						</select>
+						<button className="px-3 py-1 rounded border border-white/20 bg-neutral-900 disabled:opacity-40" disabled={starNodes.length === 0 || newBodyParentStarId == null} onClick={() => addNode(undefined)}>Add Body</button>
 								<button className="px-3 py-1 rounded border border-white/20 bg-neutral-900" onClick={() => addNode('star')}>Add Star</button>
 								<button className="px-3 py-1 rounded border border-white/20 bg-neutral-900 disabled:opacity-40" disabled={selectedId == null} onClick={removeSelected}>Remove Selected</button>
 								<button className="px-3 py-1 rounded border border-white/20 bg-neutral-900 disabled:opacity-40" disabled={lanes.length === 0} onClick={removeLastLane}>Undo Lane</button>
@@ -512,30 +672,100 @@ export default function App() {
 							<div className="space-y-2 bg-neutral-900/30 border border-white/10 rounded p-3">
 								<div className="font-medium text-sm">Selected Node</div>
 								<div className="text-xs opacity-75">id: {selectedNode.id}</div>
-								<label className="block text-xs opacity-80 mt-1">Body Type</label>
+								{bodyTypeById.get(selectedNode.filling_name)?.category !== 'star' && (
+									<div className="mt-1">
+										<label className="block text-xs opacity-80">Parent Star</label>
+										<select
+											className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded"
+											value={selectedNode.parent_star_id ?? ''}
+											disabled={starNodes.length === 0}
+											onChange={e => {
+												const v = e.target.value
+												const targetStarId = v === '' ? null : Number(v)
+												if (targetStarId == null) {
+													setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, parent_star_id: undefined } : n))
+													return
+												}
+												const countAtTarget = nodes.filter(n => n.parent_star_id === targetStarId && n.id !== selectedNode.id).length
+												if (countAtTarget >= 100) {
+													alert('Body limit per star reached (100).')
+													return
+												}
+												setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, parent_star_id: targetStarId } : n))
+											}}
+										>
+											<option value="">{starNodes.length === 0 ? 'No stars yet' : 'Choose a star'}</option>
+											{starNodes.map(s => (
+												<option key={s.id} value={s.id}>Star {s.id}</option>
+											))}
+										</select>
+									</div>
+								)}
+				<label className="block text-xs opacity-80 mt-1">Body Type</label>
 								<select
 									className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded"
 									value={selectedNode.filling_name}
-									onChange={e => setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, filling_name: e.target.value } : n) )}
+							onChange={e => {
+								const newTypeId = e.target.value
+								const newCategory = bodyTypeById.get(newTypeId)?.category
+								if (!newCategory) return
+							// Prevent switching between star and non-star groups
+							const initialCat = selectedNode.initial_category
+							const initiallyStar = initialCat === 'star'
+							if (initiallyStar && newCategory !== 'star') { alert('This star can only change to another star type.'); return }
+							if (!initiallyStar && newCategory === 'star') { alert('This body cannot change into a star.'); return }
+								const currentCategory = bodyTypeById.get(selectedNode.filling_name)?.category
+						if (newCategory === 'star') {
+									// If switching from non-star to star, enforce ≤15 stars
+									if (currentCategory !== 'star') {
+										const starCount = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category === 'star').length
+										if (starCount >= 15) {
+											alert('Star limit reached (15).')
+											return
+										}
+									}
+									setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, filling_name: newTypeId, parent_star_id: undefined } : n))
+									return
+								}
+								// For any non-star body, require a parent star
+								if (starNodes.length === 0) {
+									alert('Add a star first before assigning a body type that is not a star.')
+									return
+								}
+								let parentStarId: number | null = selectedNode.parent_star_id ?? null
+								const hasValidCurrentParent = parentStarId != null && starNodes.some(s => s.id === parentStarId)
+								if (!hasValidCurrentParent) {
+									if (newBodyParentStarId != null && starNodes.some(s => s.id === newBodyParentStarId)) {
+										parentStarId = newBodyParentStarId
+									} else if (starNodes.length === 1) {
+										parentStarId = starNodes[0].id
+									} else {
+										alert('Select a Parent Star for this body first (Tools or Selected Node panel).')
+										return
+									}
+								}
+								const countAtParent = nodes.filter(n => n.parent_star_id === parentStarId && n.id !== selectedNode.id).length
+								if (countAtParent >= 100) {
+									alert('Body limit per star reached (100).')
+									return
+								}
+								setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, filling_name: newTypeId, parent_star_id: parentStarId ?? undefined } : n))
+							}}
 								>
-									<optgroup label="Stars (Bundled)">
-										{bundled.stars.map(b => <option key={b.id} value={b.id}>{b.label}</option>)}
-									</optgroup>
-									<optgroup label="Planets (Bundled)">
-										{bundled.planets.map(b => <option key={b.id} value={b.id}>{b.label}</option>)}
-									</optgroup>
-									<optgroup label="Moons (Bundled)">
-										{bundled.moons.map(b => <option key={b.id} value={b.id}>{b.label}</option>)}
-									</optgroup>
-									<optgroup label="Asteroids (Bundled)">
-										{bundled.asteroids.map(b => <option key={b.id} value={b.id}>{b.label}</option>)}
-									</optgroup>
-									<optgroup label="Special (Bundled)">
-										{bundled.special.map(b => <option key={b.id} value={b.id}>{b.label}</option>)}
-									</optgroup>
+							{selectedNode.initial_category === 'star' ? (
+								<optgroup label="Stars (Bundled)">
+									{bundled.stars.map(b => <option key={b.id} value={b.id}>{b.label}</option>)}
+								</optgroup>
+							) : (
+								<optgroup label="Bodies (Bundled)">
+									{[...bundled.planets, ...bundled.moons, ...bundled.asteroids, ...bundled.special].map(b => (
+										<option key={b.id} value={b.id}>{b.label}</option>
+									))}
+								</optgroup>
+							)}
 								</select>
 
-								<div className="mt-2">
+						<div className="mt-2">
 									<div className="text-sm">Ownership</div>
 									<select
 										className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded"
@@ -604,13 +834,15 @@ export default function App() {
 									<Line key={l.id} points={[a.position.x, a.position.y, b.position.x, b.position.y]} stroke={invalid ? '#ef4444' : (l.type === 'wormhole' ? '#60a5fa' : l.type === 'star' ? '#f59e0b' : 'white')} strokeWidth={2} opacity={invalid ? 0.9 : 0.7} dash={l.type === 'wormhole' ? [6, 6] : undefined} onClick={() => onLaneClick(l.id)} />
 								)
 							})}
-							{nodes.map(n => (
+						{nodes.map(n => (
 								<Circle
 									key={n.id}
 									x={n.position.x}
 									y={n.position.y}
 									radius={getBodyRadiusById(n.filling_name)}
-									fill={selectedId === n.id ? 'white' : 'rgba(255,255,255,0.85)'}
+								fill={getBodyColorById(n.filling_name)}
+								stroke={selectedId === n.id ? 'white' : undefined}
+								strokeWidth={selectedId === n.id ? 2 : 0}
 									draggable
 									dragBoundFunc={(pos) => snapToGrid ? { x: snap(pos.x, gridSize), y: snap(pos.y, gridSize) } : pos}
 									onDragEnd={e => updateNodePosition(n.id, { x: e.target.x(), y: e.target.y() })}
@@ -619,7 +851,46 @@ export default function App() {
 							))}
 						</Layer>
 					</Stage>
-					<div className="absolute bottom-2 left-2 text-xs opacity-60">Tips: Link to create lanes; Delete Lanes to remove</div>
+				<div className="absolute bottom-2 left-2 text-xs opacity-60">Tips: Link to create lanes; Delete Lanes to remove</div>
+				{reassignStarModalOpen && reassignSourceStarId != null && (
+					<div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+						<div className="bg-neutral-900 border border-white/20 rounded p-4 w-[380px]">
+							<div className="font-medium mb-2">Delete Star {reassignSourceStarId}</div>
+							<div className="text-xs opacity-80 mb-3">This star has bodies assigned. Choose a target star to reassign them before deletion.</div>
+							<label className="block text-xs opacity-80 mb-1">Reassign bodies to</label>
+							<select
+								className="w-full px-2 py-1 bg-neutral-800 border border-white/20 rounded"
+								value={reassignTargetStarId ?? ''}
+								onChange={e => setReassignTargetStarId(e.target.value === '' ? null : Number(e.target.value))}
+							>
+								<option value="">Choose a star</option>
+								{nodes
+									.filter(n => bodyTypeById.get(n.filling_name)?.category === 'star' && n.id !== reassignSourceStarId)
+									.map(s => <option key={s.id} value={s.id}>Star {s.id}</option>)}
+							</select>
+							<div className="flex justify-end gap-2 mt-4">
+								<button className="px-3 py-1 rounded border border-white/20 bg-neutral-800" onClick={() => { setReassignStarModalOpen(false); setReassignSourceStarId(null); setReassignTargetStarId(null) }}>Cancel</button>
+								<button className="px-3 py-1 rounded bg-white text-black" onClick={() => {
+									if (reassignTargetStarId == null) { alert('Choose a target star.'); return }
+									if (reassignTargetStarId === reassignSourceStarId) { alert('Choose a different star.'); return }
+									const dependentBodies = nodes.filter(n => n.parent_star_id === reassignSourceStarId && bodyTypeById.get(n.filling_name)?.category !== 'star')
+									const existingAtTarget = nodes.filter(n => n.parent_star_id === reassignTargetStarId).length
+									if (existingAtTarget + dependentBodies.length > 100) { alert('Reassignment would exceed the per-star body limit (100).'); return }
+									// Apply reassignment and delete the source star and its lanes
+									setNodes(prev => prev
+										.filter(n => n.id !== reassignSourceStarId)
+										.map(n => n.parent_star_id === reassignSourceStarId ? { ...n, parent_star_id: reassignTargetStarId } : n)
+									)
+									setLanes(prev => prev.filter(l => l.node_a !== reassignSourceStarId && l.node_b !== reassignSourceStarId))
+									setSelectedId(null)
+									setReassignStarModalOpen(false)
+									setReassignSourceStarId(null)
+									setReassignTargetStarId(null)
+								}}>Reassign & Delete</button>
+							</div>
+						</div>
+					</div>
+				)}
 				</div>
 				<div className="w-80 border-l border-white/10 p-4 overflow-auto">
 					<div className="space-y-6">
