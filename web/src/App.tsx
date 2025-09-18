@@ -5,7 +5,7 @@ import JSZip from 'jszip'
 import Ajv, { type ValidateFunction } from 'ajv'
 import './index.css'
 
-const APP_VERSION = '0.4.0'
+const APP_VERSION = '0.5.0'
 // Only these body types may be owned by players
 const PLAYER_OWNABLE_TYPES = new Set<string>(['planet_terran', 'planet_desert', 'planet_ferrous', 'planet_city'])
 const STORAGE_KEYS = {
@@ -40,6 +40,7 @@ interface ProjectStateSnapshot {
 	scenarioName: string
 	skybox: string
 	players: number
+    modCompatVersion: number
 	grid: { showGrid: boolean; snapToGrid: boolean; gridSize: number }
 }
 
@@ -52,6 +53,7 @@ export default function App() {
 	const [scenarioName, setScenarioName] = useState<string>('MyScenario')
 	const [skybox, setSkybox] = useState<string>('skybox_random')
 	const [players, setPlayers] = useState<number>(2)
+    const [modCompatVersion, setModCompatVersion] = useState<number>(2)
 	const [linkMode, setLinkMode] = useState<boolean>(false)
 	const [laneDeleteMode, setLaneDeleteMode] = useState<boolean>(false)
 	const [linkStartId, setLinkStartId] = useState<number | null>(null)
@@ -131,6 +133,7 @@ export default function App() {
 				// Skybox is fixed to skybox_random in the editor UI
 				if (typeof decoded.players === 'number') setPlayers(Math.max(2, Math.min(10, decoded.players)))
 				setScenarioName(decoded.scenarioName || 'SharedScenario')
+                if (typeof decoded.modCompatVersion === 'number') setModCompatVersion(Math.max(1, Math.floor(decoded.modCompatVersion)))
 				nextNodeId.current = (decoded.nodes.reduce((m: number, n: NodeItem) => Math.max(m, n.id), 0) || 0) + 1
 				nextLaneId.current = (decoded.lanes.reduce((m: number, l: PhaseLane) => Math.max(m, l.id), 0) || 0) + 1
 			}
@@ -163,6 +166,7 @@ export default function App() {
 				nextLaneId.current = (snap.lanes.reduce((m, l) => Math.max(m, l.id), 0) || 0) + 1
 			}
 			if (typeof snap.scenarioName === 'string') setScenarioName(snap.scenarioName)
+            if (typeof (snap as any).modCompatVersion === 'number') setModCompatVersion(Math.max(1, Math.floor((snap as any).modCompatVersion)))
 			// Skybox is fixed to skybox_random in the editor UI
 			if (typeof snap.players === 'number') setPlayers(Math.max(2, Math.min(10, snap.players)))
 			if (snap.grid) {
@@ -181,6 +185,7 @@ export default function App() {
 			scenarioName,
 			skybox,
 			players,
+            modCompatVersion,
 			grid: { showGrid, snapToGrid, gridSize },
 		}
 		const t = setTimeout(() => {
@@ -570,8 +575,10 @@ export default function App() {
 	}
 
 	const exportZip = async () => {
-		const scenario = buildScenarioJSON(nodes, lanes, skybox)
-		const uniformsObj = buildScenarioUniformsObject(scenarioName)
+		const scenario = buildScenarioJSON(nodes, lanes, skybox, players)
+		const sanitized = sanitizeName(scenarioName)
+		const scenarioFileBase = sanitized.toLowerCase()
+		const uniformsObj = buildScenarioUniformsObject(scenarioFileBase)
 
 		if (validateScenario) {
 			const valid = validateScenario(scenario)
@@ -595,11 +602,9 @@ export default function App() {
 		setAjvError(null)
 
 		const zip = new JSZip()
-		const sanitized = sanitizeName(scenarioName)
-		const scenarioFileBase = sanitized.toLowerCase()
-		const root = `${sanitized}Mod/`
+        const root = `${scenarioFileBase}/`
 
-		zip.file(`${root}.mod_meta_data`, buildModMetaData(scenarioName))
+        zip.file(`${root}.mod_meta_data`, buildModMetaData(scenarioName, modCompatVersion))
 		zip.file(`${root}scenario.uniforms`, JSON.stringify(uniformsObj, null, 2))
 		zip.file(`${root}scenarios/${scenarioFileBase}.scenario`, JSON.stringify(scenario, null, 2))
 
@@ -613,8 +618,8 @@ export default function App() {
 		const url = URL.createObjectURL(blob)
 		const a = document.createElement('a')
 		a.href = url
-		const modZipBase = sanitized.toLowerCase()
-		a.download = `${modZipBase}.zip`
+        const modZipBase = scenarioFileBase
+        a.download = `${modZipBase}.zip`
 		a.click()
 		URL.revokeObjectURL(url)
 	}
@@ -705,6 +710,7 @@ export default function App() {
 		setScenarioName('MyScenario')
 		setSkybox('skybox_random')
 		setPlayers(2)
+        setModCompatVersion(2)
 		setLinkMode(false)
 		setLaneDeleteMode(false)
 		setLinkStartId(null)
@@ -751,6 +757,8 @@ export default function App() {
 						<div className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded opacity-60 select-none">skybox_random</div>
 						<label className="block text-xs opacity-80 mt-2">Players</label>
 						<input type="number" min={2} max={10} className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={players} onChange={e => setPlayers(Math.max(2, Math.min(10, Number(e.target.value) || 2)))} />
+					<label className="block text-xs opacity-80 mt-2">Compatibility Version</label>
+					<input type="number" min={1} className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={modCompatVersion} onChange={e => setModCompatVersion(Math.max(1, Math.floor(Number(e.target.value) || 1)))} />
 						</div>
 
 						<div className="space-y-2 bg-neutral-900/30 border border-white/10 rounded p-3">
@@ -1124,7 +1132,7 @@ export default function App() {
 	)
 }
 
-function buildScenarioJSON(nodes: NodeItem[], lanes: PhaseLane[], skybox: string) {
+function buildScenarioJSON(nodes: NodeItem[], lanes: PhaseLane[], skybox: string, players: number) {
     // Build hierarchical structure expected by the game: stars as roots, child_nodes under stars
     const nodeById = new Map<number, NodeItem>(nodes.map(n => [n.id, n]))
     const stars = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category === 'star')
@@ -1167,12 +1175,22 @@ function buildScenarioJSON(nodes: NodeItem[], lanes: PhaseLane[], skybox: string
     // lanes are preserved (ids and endpoints must stay consistent with flattened ids)
     const phase_lanes = lanes.map(l => ({ id: l.id, node_a: l.node_a, node_b: l.node_b, ...(l.type ? { type: l.type } : {}) }))
 
-    return { version: 1, skybox, root_nodes, phase_lanes, recommended_team_count: 1 }
+    return { version: 1, skybox, root_nodes, phase_lanes, recommended_team_count: Math.max(1, Math.floor(players)) }
 }
 
-function buildModMetaData(name: string) {
+function buildModMetaData(name: string, compatVersion: number) {
 	const sanitized = sanitizeName(name)
-	return `name ${sanitized}Mod\nversion 1\nauthor WebEditor\ndescription ${name} created with Web Editor\ncompatibilityVersion 1\n`
+    const meta = {
+        compatibility_version: compatVersion,
+        display_version: "1.0.0",
+        display_name: `${sanitized}Mod`,
+        short_description: `${name} created with sins2-mapmaker.com`,
+        logos: {
+            large_logo: "picture.png",
+            small_logo: "picture.png",
+        },
+    }
+    return JSON.stringify(meta, null, 2)
 }
 
 function buildScenarioUniformsObject(scenarioName: string) {

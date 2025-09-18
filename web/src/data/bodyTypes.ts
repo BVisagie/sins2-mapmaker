@@ -96,12 +96,15 @@ export const EDITOR_TO_GAME_FILLING: Record<string, string> = {
     planet_city: 'random_city_planet',
     planet_gas_giant: 'random_gas_giant_planet',
     planet_ship_graveyard: 'random_ship_graveyard_planet',
-    planet_pirate_base: 'random_poor_planet',
+    planet_pirate_base: 'random_pirate_base_planet',
 
     // Asteroids and fields (non-colonizable fixtures in game terms)
     asteroid_field: 'random_asteroid',
     asteroid_belt: 'random_asteroid',
     dead_asteroid: 'random_asteroid',
+    // Moon visuals (fallback to poor planet class for gameplay)
+    moon_small: 'random_poor_planet',
+    moon_large: 'random_poor_planet',
 
     // Specials
     wormhole: 'wormhole_fixture',
