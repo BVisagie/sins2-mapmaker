@@ -48,6 +48,10 @@ interface ProjectStateSnapshot {
 	grid: { showGrid: boolean; snapToGrid: boolean; gridSize: number }
     author?: string
     shortDescription?: string
+    displayName?: string
+    displayVersion?: string
+    useLocalizationKeys?: boolean
+    logoDataUrl?: string | null
 }
 
 export default function App() {
@@ -62,6 +66,10 @@ const [players, setPlayers] = useState<number>(2)
     const [modCompatVersion, setModCompatVersion] = useState<number>(2)
     const [author, setAuthor] = useState<string>('')
     const [shortDescription, setShortDescription] = useState<string>('')
+    const [displayName, setDisplayName] = useState<string>('')
+    const [displayVersion, setDisplayVersion] = useState<string>('1.0.0')
+    const [useLocalizationKeys, setUseLocalizationKeys] = useState<boolean>(true)
+    const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null)
 	const [linkMode, setLinkMode] = useState<boolean>(false)
 	const [laneDeleteMode, setLaneDeleteMode] = useState<boolean>(false)
 	const [linkStartId, setLinkStartId] = useState<number | null>(null)
@@ -177,6 +185,10 @@ const [players, setPlayers] = useState<number>(2)
             if (typeof (snap as any).modCompatVersion === 'number') setModCompatVersion(Math.max(1, Math.floor((snap as any).modCompatVersion)))
             if (typeof (snap as any).author === 'string') setAuthor((snap as any).author)
             if (typeof (snap as any).shortDescription === 'string') setShortDescription((snap as any).shortDescription)
+            if (typeof (snap as any).displayName === 'string') setDisplayName((snap as any).displayName)
+            if (typeof (snap as any).displayVersion === 'string') setDisplayVersion((snap as any).displayVersion)
+            if (typeof (snap as any).useLocalizationKeys === 'boolean') setUseLocalizationKeys((snap as any).useLocalizationKeys)
+            if ((snap as any).logoDataUrl != null) setLogoDataUrl((snap as any).logoDataUrl as string | null)
 			// Skybox is fixed to skybox_random in the editor UI
 			if (typeof snap.players === 'number') setPlayers(Math.max(2, Math.min(10, snap.players)))
 			if (snap.grid) {
@@ -198,13 +210,17 @@ const [players, setPlayers] = useState<number>(2)
             modCompatVersion,
             author,
             shortDescription,
+			displayName,
+			displayVersion,
+			useLocalizationKeys,
+			logoDataUrl,
 			grid: { showGrid, snapToGrid, gridSize },
 		}
 		const t = setTimeout(() => {
 			try { localStorage.setItem(STORAGE_KEYS.project, JSON.stringify(snap)) } catch {}
 		}, 300)
 		return () => clearTimeout(t)
-    }, [nodes, lanes, scenarioName, skybox, players, showGrid, snapToGrid, gridSize, author, shortDescription])
+    }, [nodes, lanes, scenarioName, skybox, players, showGrid, snapToGrid, gridSize, author, shortDescription, displayName, displayVersion, useLocalizationKeys, logoDataUrl])
 
 	// Compute simple warnings
 	useEffect(() => {
@@ -618,7 +634,21 @@ const exportZip = async () => {
         const root = `${scenarioFileBase}/`
 
         // Mod metadata and uniforms
-        zip.file(`${root}.mod_meta_data`, buildModMetaData(scenarioName, modCompatVersion, author, shortDescription))
+        // Require in-game Display Name
+        if (!displayName || displayName.trim().length === 0) {
+            setAjvError('Please enter a Display Name (in-game) in the Scenario panel before export.')
+            return
+        }
+        const preferredDisplayName = displayName.trim()
+        zip.file(`${root}.mod_meta_data`, buildModMetaData({
+            scenarioName,
+            compatVersion: modCompatVersion,
+            displayName: preferredDisplayName,
+            displayVersion: displayVersion && displayVersion.trim().length > 0 ? displayVersion.trim() : '1.0.0',
+            author,
+            shortDescription,
+            logoFileName: logoDataUrl ? 'logo.png' : 'picture.png',
+        }))
         zip.file(`${root}uniforms/scenario.uniforms`, JSON.stringify(uniformsObj, null, 2))
 
         // Snapshot image
@@ -630,7 +660,7 @@ const exportZip = async () => {
 
         // Build scenario .scenario zip (must contain scenario_info.json, galaxy_chart.json, galaxy_chart_fillings.json, picture.png)
         const scenarioZip = new JSZip()
-        const info = buildScenarioInfoJSON(nodes, lanes, players, scenarioName, shortDescription)
+        const info = buildScenarioInfoJSON(nodes, lanes, players, scenarioName, shortDescription, useLocalizationKeys)
         scenarioZip.file('scenario_info.json', JSON.stringify(info, null, 2))
         scenarioZip.file('galaxy_chart.json', JSON.stringify(scenario, null, 2))
         scenarioZip.file('galaxy_chart_fillings.json', JSON.stringify({ version: 1 }, null, 2))
@@ -638,11 +668,19 @@ const exportZip = async () => {
         const scenarioZipData = await scenarioZip.generateAsync({ type: 'uint8array' })
         zip.file(`${root}scenarios/${scenarioFileBase}.scenario`, scenarioZipData)
 
+        // Optional logo file
+        if (logoDataUrl) {
+            try {
+                const logoBlob = await (await fetch(logoDataUrl)).blob()
+                zip.file(`${root}logo.png`, logoBlob)
+            } catch {}
+        }
+
         const blob = await zip.generateAsync({ type: 'blob' })
 		const url = URL.createObjectURL(blob)
 		const a = document.createElement('a')
 		a.href = url
-        const modZipBase = scenarioFileBase
+        const modZipBase = `${scenarioFileBase}_v${(displayVersion && displayVersion.trim().length > 0) ? displayVersion.trim() : '1.0.0'}`
         a.download = `${modZipBase}.zip`
 		a.click()
 		URL.revokeObjectURL(url)
@@ -834,6 +872,10 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 							const cleaned = raw.replace(/[^A-Za-z0-9 ]+/g, '')
 							setScenarioName(cleaned)
 						}} />
+						<label className="block text-xs opacity-80 mt-2">Display Name (in-game, required)</label>
+						<input required className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Shown in-game; e.g. My Scenario Mod" />
+						<label className="block text-xs opacity-80 mt-2">Display Version</label>
+						<input className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={displayVersion} onChange={e => setDisplayVersion(e.target.value)} />
 						<label className="block text-xs opacity-80 mt-2">Author</label>
 						<input className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={author} onChange={e => setAuthor(e.target.value)} />
 						<label className="block text-xs opacity-80 mt-2">Short Description</label>
@@ -844,6 +886,24 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 						<input type="number" min={2} max={10} className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={players} onChange={e => setPlayers(Math.max(2, Math.min(10, Number(e.target.value) || 2)))} />
 					<label className="block text-xs opacity-80 mt-2">Compatibility Version</label>
 					<input type="number" min={1} className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={modCompatVersion} onChange={e => setModCompatVersion(Math.max(1, Math.floor(Number(e.target.value) || 1)))} />
+					<label className="flex items-center gap-2 text-xs opacity-80 mt-2">
+						<input type="checkbox" checked={useLocalizationKeys} onChange={e => setUseLocalizationKeys(e.target.checked)} /> Use localization keys for name/description
+					</label>
+					<div className="mt-2">
+						<div className="block text-xs opacity-80">Logo (optional, square recommended)</div>
+						<input type="file" accept="image/*" className="block w-full text-xs" onChange={async e => {
+							const f = e.target.files?.[0]
+							if (!f) { setLogoDataUrl(null); return }
+							const dataUrl = await new Promise<string>((resolve, reject) => {
+								const reader = new FileReader()
+								reader.onload = () => resolve(String(reader.result || ''))
+								reader.onerror = () => reject(new Error('read error'))
+								reader.readAsDataURL(f)
+							})
+							setLogoDataUrl(dataUrl)
+						}} />
+						{logoDataUrl && <div className="mt-2"><img src={logoDataUrl} alt="logo preview" className="max-w-[96px] max-h-[96px] border border-white/10" /></div>}
+					</div>
                         <div className="block text-xs opacity-80 mt-2">Snapshot Size: 800 x 775</div>
 						</div>
 
@@ -1334,17 +1394,17 @@ function buildScenarioJSON(nodes: NodeItem[], lanes: PhaseLane[], skybox: string
     return { version: 1, skybox, root_nodes, phase_lanes }
 }
 
-function buildModMetaData(name: string, compatVersion: number, author?: string, shortDescOverride?: string) {
-	const sanitized = sanitizeName(name)
+function buildModMetaData(params: { scenarioName: string; compatVersion: number; displayName: string; displayVersion: string; author?: string; shortDescription?: string; logoFileName: string }) {
+    const { scenarioName, compatVersion, displayName, displayVersion, author, shortDescription, logoFileName } = params
     const meta = {
         compatibility_version: compatVersion,
-        display_version: "1.0.0",
-        display_name: `${sanitized}Mod`,
-        short_description: (shortDescOverride && shortDescOverride.trim().length > 0) ? shortDescOverride : `${name} created with sins2-mapmaker.com`,
+        display_version: displayVersion,
+        display_name: displayName,
+        short_description: (shortDescription && shortDescription.trim().length > 0) ? shortDescription : `${scenarioName} created with sins2-mapmaker.com`,
         ...(author && author.trim().length > 0 ? { author } : {}),
         logos: {
-            large_logo: "picture.png",
-            small_logo: "picture.png",
+            large_logo: logoFileName,
+            small_logo: logoFileName,
         },
     }
     return JSON.stringify(meta, null, 2)
@@ -1360,15 +1420,17 @@ function buildScenarioUniformsObject(scenarioName: string) {
     }
 }
 
-function buildScenarioInfoJSON(nodes: NodeItem[], lanes: PhaseLane[], players: number, scenarioName: string, desc: string) {
+function buildScenarioInfoJSON(nodes: NodeItem[], lanes: PhaseLane[], players: number, scenarioName: string, desc: string, useLocalizationKeys: boolean) {
     // Determine flags
     const hasWormholes = nodes.some(n => toGameFillingName(n.filling_name) === 'wormhole_fixture') || lanes.some(l => l.type === 'wormhole')
     const nonStars = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category !== 'star')
     const planetCount = nonStars.length
     const starCount = nodes.length - nonStars.length
     // Name/description must have colon prefix
-    const nameWithColon = `:${scenarioName.replace(/_/g, ' ')}`
-    const descWithColon = `:${(desc && desc.trim().length > 0 ? desc : `${scenarioName} created with sins2-mapmaker.com`)}`
+    const nameText = scenarioName.replace(/_/g, ' ')
+    const descText = (desc && desc.trim().length > 0 ? desc : `${scenarioName} created with sins2-mapmaker.com`)
+    const nameWithColon = useLocalizationKeys ? `:${nameText}` : nameText
+    const descWithColon = useLocalizationKeys ? `:${descText}` : descText
     return {
         version: 1,
         name: nameWithColon,
