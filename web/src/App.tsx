@@ -5,7 +5,7 @@ import JSZip from 'jszip'
 import Ajv, { type ValidateFunction } from 'ajv'
 import './index.css'
 
-const APP_VERSION = '0.5.0'
+const APP_VERSION = '0.6.0'
 // Only these body types may be owned by players
 const PLAYER_OWNABLE_TYPES = new Set<string>(['planet_terran', 'planet_desert', 'planet_ferrous', 'planet_city'])
 const STORAGE_KEYS = {
