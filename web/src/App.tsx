@@ -50,7 +50,6 @@ interface ProjectStateSnapshot {
     shortDescription?: string
     displayName?: string
     displayVersion?: string
-    useLocalizationKeys?: boolean
     logoDataUrl?: string | null
 }
 
@@ -68,7 +67,6 @@ const [players, setPlayers] = useState<number>(2)
     const [shortDescription, setShortDescription] = useState<string>('')
     const [displayName, setDisplayName] = useState<string>('')
     const [displayVersion, setDisplayVersion] = useState<string>('1.0.0')
-    const [useLocalizationKeys, setUseLocalizationKeys] = useState<boolean>(true)
     const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null)
 	const [linkMode, setLinkMode] = useState<boolean>(false)
 	const [laneDeleteMode, setLaneDeleteMode] = useState<boolean>(false)
@@ -187,7 +185,6 @@ const [players, setPlayers] = useState<number>(2)
             if (typeof (snap as any).shortDescription === 'string') setShortDescription((snap as any).shortDescription)
             if (typeof (snap as any).displayName === 'string') setDisplayName((snap as any).displayName)
             if (typeof (snap as any).displayVersion === 'string') setDisplayVersion((snap as any).displayVersion)
-            if (typeof (snap as any).useLocalizationKeys === 'boolean') setUseLocalizationKeys((snap as any).useLocalizationKeys)
             if ((snap as any).logoDataUrl != null) setLogoDataUrl((snap as any).logoDataUrl as string | null)
 			// Skybox is fixed to skybox_random in the editor UI
 			if (typeof snap.players === 'number') setPlayers(Math.max(2, Math.min(10, snap.players)))
@@ -212,7 +209,6 @@ const [players, setPlayers] = useState<number>(2)
             shortDescription,
 			displayName,
 			displayVersion,
-			useLocalizationKeys,
 			logoDataUrl,
 			grid: { showGrid, snapToGrid, gridSize },
 		}
@@ -220,7 +216,7 @@ const [players, setPlayers] = useState<number>(2)
 			try { localStorage.setItem(STORAGE_KEYS.project, JSON.stringify(snap)) } catch {}
 		}, 300)
 		return () => clearTimeout(t)
-    }, [nodes, lanes, scenarioName, skybox, players, showGrid, snapToGrid, gridSize, author, shortDescription, displayName, displayVersion, useLocalizationKeys, logoDataUrl])
+    }, [nodes, lanes, scenarioName, skybox, players, showGrid, snapToGrid, gridSize, author, shortDescription, displayName, displayVersion, logoDataUrl])
 
 	// Compute simple warnings
 	useEffect(() => {
@@ -660,7 +656,7 @@ const exportZip = async () => {
 
         // Build scenario .scenario zip (must contain scenario_info.json, galaxy_chart.json, galaxy_chart_fillings.json, picture.png)
         const scenarioZip = new JSZip()
-        const info = buildScenarioInfoJSON(nodes, lanes, players, scenarioName, shortDescription, useLocalizationKeys)
+        const info = buildScenarioInfoJSON(nodes, lanes, players, scenarioName, shortDescription)
         scenarioZip.file('scenario_info.json', JSON.stringify(info, null, 2))
         scenarioZip.file('galaxy_chart.json', JSON.stringify(scenario, null, 2))
         scenarioZip.file('galaxy_chart_fillings.json', JSON.stringify({ version: 1 }, null, 2))
@@ -886,9 +882,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 						<input type="number" min={2} max={10} className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={players} onChange={e => setPlayers(Math.max(2, Math.min(10, Number(e.target.value) || 2)))} />
 					<label className="block text-xs opacity-80 mt-2">Compatibility Version</label>
 					<input type="number" min={1} className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={modCompatVersion} onChange={e => setModCompatVersion(Math.max(1, Math.floor(Number(e.target.value) || 1)))} />
-					<label className="flex items-center gap-2 text-xs opacity-80 mt-2">
-						<input type="checkbox" checked={useLocalizationKeys} onChange={e => setUseLocalizationKeys(e.target.checked)} /> Use localization keys for name/description
-					</label>
+                    
 					<div className="mt-2">
 						<div className="block text-xs opacity-80">Logo (optional, square recommended)</div>
 						<input type="file" accept="image/*" className="block w-full text-xs" onChange={async e => {
@@ -1083,70 +1077,71 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 							)}
 								</select>
 
-						<div className="mt-2">
-									<div className="text-sm">Ownership</div>
-						<select
-										className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded"
-										value={selectedNode.ownership?.player_index ? 'player' : selectedNode.ownership?.npc_filling_type ? 'npc' : 'none'}
-										onChange={e => {
-											const mode = e.target.value as 'none' | 'player' | 'npc'
-								if (mode === 'player') {
-									// Enforce player-ownable whitelist
-									if (!PLAYER_OWNABLE_TYPES.has(selectedNode.filling_name)) {
-										alert('Only Terran, Desert, Ferrous, or City planets can be player-owned.')
-										return
-									}
-									// Assign the first available player index (1..players) not used by other non-star planets
-									const used = new Set<number>()
-									nodes.forEach(m => {
-										if (m.id === selectedNode.id) return
-										const cat = bodyTypeById.get(m.filling_name)?.category
-										const p = m.ownership?.player_index
-										if (cat !== 'star' && typeof p === 'number' && p >= 1) used.add(p)
-									})
-									let assign: number | null = null
-									for (let i = 1; i <= players; i++) { if (!used.has(i)) { assign = i; break } }
-									if (assign == null) { alert('All player slots are already assigned to other planets.'); return }
-									setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { player_index: assign! } } : n))
-									return
-								}
-								if (mode === 'none') { setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: undefined } : n)); return }
-								// npc
-								setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { npc_filling_type: 'militia', npc_filling_name: 'default' } } : n))
-										}}
-									>
-										<option value="none">Unowned</option>
-										<option value="player">Player</option>
-										<option value="npc">NPC</option>
-									</select>
+						{bodyTypeById.get(selectedNode.filling_name)?.category !== 'star' && (
+							<div className="mt-2">
+								<div className="text-sm">Ownership</div>
+								<select
+									className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded"
+									value={selectedNode.ownership?.player_index ? 'player' : selectedNode.ownership?.npc_filling_type ? 'npc' : 'none'}
+									onChange={e => {
+										const mode = e.target.value as 'none' | 'player' | 'npc'
+										if (mode === 'player') {
+											// Enforce player-ownable whitelist
+											if (!PLAYER_OWNABLE_TYPES.has(selectedNode.filling_name)) {
+												alert('Only Terran, Desert, Ferrous, or City planets can be player-owned.')
+												return
+											}
+											// Assign the first available player index (1..players) not used by other non-star planets
+											const used = new Set<number>()
+											nodes.forEach(m => {
+												if (m.id === selectedNode.id) return
+												const cat = bodyTypeById.get(m.filling_name)?.category
+												const p = m.ownership?.player_index
+												if (cat !== 'star' && typeof p === 'number' && p >= 1) used.add(p)
+											})
+											let assign: number | null = null
+											for (let i = 1; i <= players; i++) { if (!used.has(i)) { assign = i; break } }
+											if (assign == null) { alert('All player slots are already assigned to other planets.'); return }
+											setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { player_index: assign! } } : n))
+											return
+										}
+										if (mode === 'none') { setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: undefined } : n)); return }
+										// npc
+										setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { npc_filling_type: 'militia', npc_filling_name: 'default' } } : n))
+									}}
+								>
+									<option value="none">Unowned</option>
+									<option value="player">Player</option>
+									<option value="npc">NPC</option>
+								</select>
 
-									{selectedNode.ownership?.player_index != null && (
-										<div className="space-y-1 mt-2">
-											<label className="block text-sm">Player Index (1..{players})</label>
-							<input type="number" min={1} max={players} className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={selectedNode.ownership.player_index}
-									onChange={e => setNodes(prev => {
-									// Enforce ownable types when setting player index directly
-									if (!PLAYER_OWNABLE_TYPES.has(selectedNode.filling_name)) { alert('Only Terran, Desert, Ferrous, or City planets can be player-owned.'); return prev }
-									const newIdx = Math.max(1, Math.min(players, Number(e.target.value) || 1))
-									const conflict = prev.some(m => m.id !== selectedNode.id && bodyTypeById.get(m.filling_name)?.category !== 'star' && m.ownership?.player_index === newIdx)
-									if (conflict) { alert(`Player ${newIdx} is already assigned to another planet.`); return prev }
-									return prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { ...n.ownership, player_index: newIdx } } : n)
-								})}
-							/>
-										</div>
-									)}
+								{selectedNode.ownership?.player_index != null && (
+									<div className="space-y-1 mt-2">
+										<label className="block text-sm">Player Index (1..{players})</label>
+										<input type="number" min={1} max={players} className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={selectedNode.ownership.player_index}
+											onChange={e => setNodes(prev => {
+											// Enforce ownable types when setting player index directly
+											if (!PLAYER_OWNABLE_TYPES.has(selectedNode.filling_name)) { alert('Only Terran, Desert, Ferrous, or City planets can be player-owned.'); return prev }
+											const newIdx = Math.max(1, Math.min(players, Number(e.target.value) || 1))
+											const conflict = prev.some(m => m.id !== selectedNode.id && bodyTypeById.get(m.filling_name)?.category !== 'star' && m.ownership?.player_index === newIdx)
+											if (conflict) { alert(`Player ${newIdx} is already assigned to another planet.`); return prev }
+											return prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { ...n.ownership, player_index: newIdx } } : n)
+										})}
+										/>
+									</div>
+								)}
 
-									{selectedNode.ownership?.npc_filling_type && (
-										<div className="space-y-1 mt-2">
-											<label className="block text-sm">NPC Type</label>
-											<select className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={selectedNode.ownership.npc_filling_type}
-												onChange={e => setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { ...n.ownership, npc_filling_type: e.target.value as NodeOwnership['npc_filling_type'] } } : n) )}
-											>
-												<option value="militia">militia</option>
-												<option value="guardian">guardian</option>
-												<option value="enemy_faction">enemy_faction</option>
-												<option value="friendly_faction">friendly_faction</option>
-											</select>
+								{selectedNode.ownership?.npc_filling_type && (
+									<div className="space-y-1 mt-2">
+										<label className="block text-sm">NPC Type</label>
+										<select className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={selectedNode.ownership.npc_filling_type}
+											onChange={e => setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { ...n.ownership, npc_filling_type: e.target.value as NodeOwnership['npc_filling_type'] } } : n) )}
+										>
+											<option value="militia">militia</option>
+											<option value="guardian">guardian</option>
+											<option value="enemy_faction">enemy_faction</option>
+											<option value="friendly_faction">friendly_faction</option>
+										</select>
 									<label className="block text-sm">NPC Filling Name</label>
 									<select className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={selectedNode.ownership.npc_filling_name ?? ''}
 										onChange={e => setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { ...n.ownership, npc_filling_name: e.target.value } } : n) )}
@@ -1163,9 +1158,10 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 												onChange={e => setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { ...n.ownership, npc_filling_name: e.target.value } } : n) )}
 											/>
 										)}
-										</div>
-									)}
-								</div>
+									</div>
+								)}
+							</div>
+						)}
 							</div>
 						)}
 					</div>
@@ -1420,21 +1416,19 @@ function buildScenarioUniformsObject(scenarioName: string) {
     }
 }
 
-function buildScenarioInfoJSON(nodes: NodeItem[], lanes: PhaseLane[], players: number, scenarioName: string, desc: string, useLocalizationKeys: boolean) {
+function buildScenarioInfoJSON(nodes: NodeItem[], lanes: PhaseLane[], players: number, scenarioName: string, desc: string) {
     // Determine flags
     const hasWormholes = nodes.some(n => toGameFillingName(n.filling_name) === 'wormhole_fixture') || lanes.some(l => l.type === 'wormhole')
     const nonStars = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category !== 'star')
     const planetCount = nonStars.length
     const starCount = nodes.length - nonStars.length
-    // Name/description must have colon prefix
+    // Use plain text name/description (no localization keys)
     const nameText = scenarioName.replace(/_/g, ' ')
     const descText = (desc && desc.trim().length > 0 ? desc : `${scenarioName} created with sins2-mapmaker.com`)
-    const nameWithColon = useLocalizationKeys ? `:${nameText}` : nameText
-    const descWithColon = useLocalizationKeys ? `:${descText}` : descText
     return {
         version: 1,
-        name: nameWithColon,
-        description: descWithColon,
+        name: nameText,
+        description: descText,
         desired_player_slots_configuration: {
             player_count: Math.max(2, Math.min(10, Math.floor(players) || 2)),
             team_count: 0,
