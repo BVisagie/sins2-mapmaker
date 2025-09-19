@@ -587,7 +587,7 @@ const [players, setPlayers] = useState<number>(2)
 	}
 
 const exportZip = async () => {
-    const scenario = buildScenarioJSON(nodes, lanes, skybox, players)
+    const scenario = buildScenarioJSON(nodes, lanes, skybox)
     const sanitized = sanitizeName(scenarioName)
     // Preserve case and underscores for file base and uniforms entry
     const scenarioFileBase = sanitized
@@ -1271,7 +1271,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 	)
 }
 
-function buildScenarioJSON(nodes: NodeItem[], lanes: PhaseLane[], skybox: string, players: number) {
+function buildScenarioJSON(nodes: NodeItem[], lanes: PhaseLane[], skybox: string) {
     // Build hierarchical structure expected by the game: stars as roots, child_nodes under stars
     const stars = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category === 'star')
     const nonStars = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category !== 'star')
