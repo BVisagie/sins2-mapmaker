@@ -1,5 +1,7 @@
 # Sins II Web Map Editor
 
+[![Sponsor](https://img.shields.io/badge/Sponsor-❤-brightgreen)](https://github.com/sponsors/BVisagie)
+
 Live Demo: https://www.sins2-mapmaker.com/
 
 Browser-based scenario editor for Sins of a Solar Empire II.

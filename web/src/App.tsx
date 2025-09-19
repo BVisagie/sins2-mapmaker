@@ -1330,6 +1330,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 					<div className="flex items-center gap-3">
 						<a className="hover:text-white" href="https://www.sins2-mapmaker.com/" target="_blank" rel="noreferrer">Website</a>
 						<a className="hover:text-white" href="https://github.com/BVisagie/sins2-mapmaker" target="_blank" rel="noreferrer">Source</a>
+						<a className="hover:text-white" href="https://github.com/sponsors/BVisagie" target="_blank" rel="noreferrer">Donate</a>
 						<a className="hover:text-white" href="https://github.com/BVisagie/sins2-mapmaker/issues" target="_blank" rel="noreferrer">Issues</a>
 					</div>
 				</div>
