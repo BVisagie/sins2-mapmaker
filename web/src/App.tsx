@@ -586,7 +586,7 @@ const [players, setPlayers] = useState<number>(2)
 		}
 	}
 
-	const exportZip = async () => {
+const exportZip = async () => {
     const scenario = buildScenarioJSON(nodes, lanes, skybox, players)
     const sanitized = sanitizeName(scenarioName)
     // Preserve case and underscores for file base and uniforms entry
@@ -614,20 +614,31 @@ const [players, setPlayers] = useState<number>(2)
 		}
 		setAjvError(null)
 
-		const zip = new JSZip()
+    const zip = new JSZip()
         const root = `${scenarioFileBase}/`
 
+        // Mod metadata and uniforms
         zip.file(`${root}.mod_meta_data`, buildModMetaData(scenarioName, modCompatVersion, author, shortDescription))
         zip.file(`${root}uniforms/scenario.uniforms`, JSON.stringify(uniformsObj, null, 2))
-		zip.file(`${root}scenarios/${scenarioFileBase}.scenario`, JSON.stringify(scenario, null, 2))
 
-		// Add a PNG snapshot of the map with player numbers
-		try {
-			const png = await createMapPictureBlob()
-			if (png) zip.file(`${root}picture.png`, png)
-		} catch {}
+        // Snapshot image
+        let png: Blob | null = null
+        try {
+            png = await createMapPictureBlob()
+            if (png) zip.file(`${root}picture.png`, png)
+        } catch {}
 
-		const blob = await zip.generateAsync({ type: 'blob' })
+        // Build scenario .scenario zip (must contain scenario_info.json, galaxy_chart.json, galaxy_chart_fillings.json, picture.png)
+        const scenarioZip = new JSZip()
+        const info = buildScenarioInfoJSON(nodes, lanes, players, scenarioName, shortDescription)
+        scenarioZip.file('scenario_info.json', JSON.stringify(info, null, 2))
+        scenarioZip.file('galaxy_chart.json', JSON.stringify(scenario, null, 2))
+        scenarioZip.file('galaxy_chart_fillings.json', JSON.stringify({ version: 1 }, null, 2))
+        if (png) scenarioZip.file('picture.png', png)
+        const scenarioZipData = await scenarioZip.generateAsync({ type: 'uint8array' })
+        zip.file(`${root}scenarios/${scenarioFileBase}.scenario`, scenarioZipData)
+
+        const blob = await zip.generateAsync({ type: 'blob' })
 		const url = URL.createObjectURL(blob)
 		const a = document.createElement('a')
 		a.href = url
@@ -640,7 +651,7 @@ const [players, setPlayers] = useState<number>(2)
 const createMapPictureBlob = async (): Promise<Blob | null> => {
 		const stage: any = stageRef.current
 		if (!stage || !stage.toDataURL) return null
-		const pixelRatio = 2
+        const pixelRatio = 2
 
 		// Compute tight bounding box around all nodes (including radii)
 		if (nodes.length === 0) {
@@ -685,19 +696,30 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 		if (cropY + cropH > stageH) cropH = stageH - cropY
 		if (cropW <= 0 || cropH <= 0) { cropX = 0; cropY = 0; cropW = stageW; cropH = stageH }
 
-		const dataUrl: string = stage.toDataURL({ x: cropX, y: cropY, width: cropW, height: cropH, pixelRatio })
+        const dataUrl: string = stage.toDataURL({ x: cropX, y: cropY, width: cropW, height: cropH, pixelRatio })
 		return await new Promise<Blob | null>((resolve) => {
 			const baseImg = new Image()
 			baseImg.onload = () => {
-				const canvas = document.createElement('canvas')
-				canvas.width = baseImg.width
-				canvas.height = baseImg.height
+                // Fixed target canvas size
+                let targetW = 800
+                let targetH = 775
+
+                // Compute letterbox scale to fit baseImg into target
+                const scale = Math.min(targetW / baseImg.width, targetH / baseImg.height)
+                const drawW = Math.max(1, Math.floor(baseImg.width * scale))
+                const drawH = Math.max(1, Math.floor(baseImg.height * scale))
+                const offsetX = Math.floor((targetW - drawW) / 2)
+                const offsetY = Math.floor((targetH - drawH) / 2)
+
+                const canvas = document.createElement('canvas')
+                canvas.width = targetW
+                canvas.height = targetH
 				const ctx = canvas.getContext('2d')
 				if (!ctx) { resolve(null); return }
 				// Ensure solid black background
 				ctx.fillStyle = '#000000'
-				ctx.fillRect(0, 0, canvas.width, canvas.height)
-				ctx.drawImage(baseImg, 0, 0)
+                ctx.fillRect(0, 0, canvas.width, canvas.height)
+                ctx.drawImage(baseImg, 0, 0, baseImg.width, baseImg.height, offsetX, offsetY, drawW, drawH)
 				// Determine player home planets (first body per player index)
 				const homeByPlayer = new Map<number, { x: number; y: number }>()
 				nodes.forEach(n => {
@@ -709,15 +731,15 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 					}
 				})
 				// Draw numbered badges near homes (offset by crop)
-				const badgeRadius = 10 * pixelRatio
-				const badgeOffsetX = 12 * pixelRatio
-				const badgeOffsetY = -12 * pixelRatio
+                const badgeRadius = Math.max(6, Math.round(10 * scale * pixelRatio))
+                const badgeOffsetX = Math.round(12 * scale * pixelRatio)
+                const badgeOffsetY = Math.round(-12 * scale * pixelRatio)
 				ctx.textAlign = 'center'
 				ctx.textBaseline = 'middle'
-				ctx.font = `${12 * pixelRatio}px sans-serif`
+                ctx.font = `${Math.max(8, Math.round(12 * scale * pixelRatio))}px sans-serif`
 				for (const [playerIdx, pos] of homeByPlayer) {
-					const x = (pos.x - cropX) * pixelRatio + badgeOffsetX
-					const y = (pos.y - cropY) * pixelRatio + badgeOffsetY
+                    const x = Math.round((pos.x - cropX) * scale * pixelRatio) + offsetX * pixelRatio + badgeOffsetX
+                    const y = Math.round((pos.y - cropY) * scale * pixelRatio) + offsetY * pixelRatio + badgeOffsetY
 					ctx.beginPath()
 					ctx.arc(x, y, badgeRadius, 0, Math.PI * 2)
 					ctx.fillStyle = 'rgba(0,0,0,0.85)'
@@ -822,6 +844,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 						<input type="number" min={2} max={10} className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={players} onChange={e => setPlayers(Math.max(2, Math.min(10, Number(e.target.value) || 2)))} />
 					<label className="block text-xs opacity-80 mt-2">Compatibility Version</label>
 					<input type="number" min={1} className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={modCompatVersion} onChange={e => setModCompatVersion(Math.max(1, Math.floor(Number(e.target.value) || 1)))} />
+                        <div className="block text-xs opacity-80 mt-2">Snapshot Size: 800 x 775</div>
 						</div>
 
 						<div className="space-y-2 bg-neutral-900/30 border border-white/10 rounded p-3">
@@ -1271,20 +1294,29 @@ function buildScenarioJSON(nodes: NodeItem[], lanes: PhaseLane[], skybox: string
         }
     }
 
-    const toGameNode = (n: NodeItem) => ({
-        id: n.id,
-        filling_name: ((): string => {
+    const toGameNode = (n: NodeItem) => {
+        const computedFilling = ((): string => {
             const idx = n.ownership?.player_index
             if (typeof idx === 'number' && playerHomePlanetByIndex.get(idx) === n.id) return 'player_home_planet'
             return toGameFillingName(n.filling_name)
-        })(),
-        position: [n.position.x, n.position.y] as [number, number],
-        ...(typeof n.rotation === 'number' ? { rotation: n.rotation } : {}),
-        ...(typeof n.chance_of_loot === 'number' ? { chance_of_loot: n.chance_of_loot } : {}),
-        ...(n.has_artifact ? { has_artifact: true } : {}),
-        ...(n.has_artifact && n.artifact_name ? { artifact_name: n.artifact_name } : {}),
-        ...(n.ownership ? { ownership: n.ownership } : {}),
-    })
+        })()
+        // If the editor body is pirate base, ensure we export pirate ownership when none is provided
+        const exportOwnership = ((): NodeOwnership | undefined => {
+            if (n.ownership) return n.ownership
+            if (n.filling_name === 'planet_pirate_base') return { npc_filling_name: 'pirate' }
+            return undefined
+        })()
+        return {
+            id: n.id,
+            filling_name: computedFilling,
+            position: [n.position.x, n.position.y] as [number, number],
+            ...(typeof n.rotation === 'number' ? { rotation: n.rotation } : {}),
+            ...(typeof n.chance_of_loot === 'number' ? { chance_of_loot: n.chance_of_loot } : {}),
+            ...(n.has_artifact ? { has_artifact: true } : {}),
+            ...(n.has_artifact && n.artifact_name ? { artifact_name: n.artifact_name } : {}),
+            ...(exportOwnership ? { ownership: exportOwnership } : {}),
+        }
+    }
 
     const root_nodes = stars.map(s => ({
         ...toGameNode(s),
@@ -1325,6 +1357,33 @@ function buildScenarioUniformsObject(scenarioName: string) {
         fake_server_scenarios: [],
         scenarios: [scenarioName],
         version: 1,
+    }
+}
+
+function buildScenarioInfoJSON(nodes: NodeItem[], lanes: PhaseLane[], players: number, scenarioName: string, desc: string) {
+    // Determine flags
+    const hasWormholes = nodes.some(n => toGameFillingName(n.filling_name) === 'wormhole_fixture') || lanes.some(l => l.type === 'wormhole')
+    const nonStars = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category !== 'star')
+    const planetCount = nonStars.length
+    const starCount = nodes.length - nonStars.length
+    // Name/description must have colon prefix
+    const nameWithColon = `:${scenarioName.replace(/_/g, ' ')}`
+    const descWithColon = `:${(desc && desc.trim().length > 0 ? desc : `${scenarioName} created with sins2-mapmaker.com`)}`
+    return {
+        version: 1,
+        name: nameWithColon,
+        description: descWithColon,
+        desired_player_slots_configuration: {
+            player_count: Math.max(2, Math.min(10, Math.floor(players) || 2)),
+            team_count: 0,
+        },
+        can_gravity_wells_move: false,
+        are_player_slots_randomized: false,
+        planet_counts: [planetCount, planetCount],
+        star_counts: [starCount, starCount],
+        has_wormholes: hasWormholes,
+        resources: 'scenario_options_view_resources_high',
+        map_type: 'scenario_options_view_map_type_custom',
     }
 }
 
