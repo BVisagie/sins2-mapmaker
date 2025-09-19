@@ -1322,8 +1322,18 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 						</div>
 					</div>
 				</div>
-      </div>
-      </div>
+	      </div>
+				<div className="h-10 border-t border-white/10 px-4 flex items-center justify-between text-xs text-white/70">
+					<div>
+						Fan-made tool; not affiliated with or endorsed by the Sins of a Solar Empire IP holders.
+					</div>
+					<div className="flex items-center gap-3">
+						<a className="hover:text-white" href="https://www.sins2-mapmaker.com/" target="_blank" rel="noreferrer">Website</a>
+						<a className="hover:text-white" href="https://github.com/BVisagie/sins2-mapmaker" target="_blank" rel="noreferrer">Source</a>
+						<a className="hover:text-white" href="https://github.com/BVisagie/sins2-mapmaker/issues" target="_blank" rel="noreferrer">Issues</a>
+					</div>
+				</div>
+	      </div>
 	)
 }
 
@@ -1396,7 +1406,7 @@ function buildModMetaData(params: { scenarioName: string; compatVersion: number;
         compatibility_version: compatVersion,
         display_version: displayVersion,
         display_name: displayName,
-        short_description: (shortDescription && shortDescription.trim().length > 0) ? shortDescription : `${scenarioName} created with sins2-mapmaker.com`,
+        short_description: (shortDescription && shortDescription.trim().length > 0) ? shortDescription : `${scenarioName} created with www.sins2-mapmaker.com`,
         ...(author && author.trim().length > 0 ? { author } : {}),
         logos: {
             large_logo: logoFileName,
@@ -1424,7 +1434,7 @@ function buildScenarioInfoJSON(nodes: NodeItem[], lanes: PhaseLane[], players: n
     const starCount = nodes.length - nonStars.length
     // Use plain text name/description (no localization keys)
     const nameText = scenarioName.replace(/_/g, ' ')
-    const descText = (desc && desc.trim().length > 0 ? desc : `${scenarioName} created with sins2-mapmaker.com`)
+    const descText = (desc && desc.trim().length > 0 ? desc : `${scenarioName} created with www.sins2-mapmaker.com`)
     return {
         version: 1,
         name: nameText,

@@ -1,5 +1,7 @@
 # Sins II Web Map Editor
 
+Live Demo: https://www.sins2-mapmaker.com/
+
 Browser-based scenario editor for Sins of a Solar Empire II.
 
 - Tech: React + Vite + TypeScript, Tailwind, React Konva, AJV, JSZip

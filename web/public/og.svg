@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b0b0b"/>
+      <stop offset="100%" stop-color="#1a1a1a"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#g)"/>
+  <g fill="#ffffff" opacity="0.08">
+    <circle cx="150" cy="120" r="4"/>
+    <circle cx="300" cy="80" r="2"/>
+    <circle cx="540" cy="160" r="3"/>
+    <circle cx="980" cy="90" r="2"/>
+    <circle cx="1100" cy="200" r="3"/>
+    <circle cx="200" cy="300" r="2"/>
+    <circle cx="800" cy="340" r="3"/>
+    <circle cx="1000" cy="500" r="2"/>
+    <circle cx="350" cy="520" r="3"/>
+  </g>
+  <text x="60" y="140" fill="#ffffff" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, Arial, Noto Sans, sans-serif" font-size="56" font-weight="700">sins2-mapmaker</text>
+  <text x="60" y="200" fill="#d1d5db" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, Arial, Noto Sans, sans-serif" font-size="28">Sins of a Solar Empire II — Scenario Editor</text>
+  <rect x="60" y="260" width="1080" height="220" rx="12" fill="#0f172a" opacity="0.7" stroke="#334155"/>
+  <text x="90" y="315" fill="#e5e7eb" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, Arial, Noto Sans, sans-serif" font-size="26">• Build stars, planets, moons, asteroids, and special nodes</text>
+  <text x="90" y="360" fill="#e5e7eb" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, Arial, Noto Sans, sans-serif" font-size="26">• Validate and export game-ready .scenario and scenario.uniforms</text>
+  <text x="90" y="405" fill="#e5e7eb" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, Arial, Noto Sans, sans-serif" font-size="26">• Share maps via URL; download mod zip with metadata</text>
+  <text x="60" y="520" fill="#9ca3af" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, Arial, Noto Sans, sans-serif" font-size="22">www.sins2-mapmaker.com</text>
+</svg>
+
+
