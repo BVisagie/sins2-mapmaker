@@ -700,10 +700,16 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 		const stage: any = stageRef.current
 		if (!stage || !stage.toDataURL) return null
         const pixelRatio = 2
+        // Hide live badges layer during capture to avoid double-drawing
+        const liveLayer = stage.findOne ? stage.findOne('#liveBadgesLayer') : null
+        const prevVisible = liveLayer ? liveLayer.visible() : undefined
+        if (liveLayer) { liveLayer.visible(false); stage.draw() }
 
 		// Compute tight bounding box around all nodes (including radii)
 		if (nodes.length === 0) {
 			const dataUrlFull: string = stage.toDataURL({ pixelRatio })
+            // Restore live badges layer visibility immediately after capture
+            if (liveLayer && prevVisible !== undefined) { liveLayer.visible(prevVisible); stage.draw() }
 			return await new Promise<Blob | null>((resolve) => {
 				const img = new Image()
 				img.onload = () => {
@@ -744,7 +750,9 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 		if (cropY + cropH > stageH) cropH = stageH - cropY
 		if (cropW <= 0 || cropH <= 0) { cropX = 0; cropY = 0; cropW = stageW; cropH = stageH }
 
-        const dataUrl: string = stage.toDataURL({ x: cropX, y: cropY, width: cropW, height: cropH, pixelRatio })
+		const dataUrl: string = stage.toDataURL({ x: cropX, y: cropY, width: cropW, height: cropH, pixelRatio })
+		// Restore live badges layer visibility immediately after capture
+		if (liveLayer && prevVisible !== undefined) { liveLayer.visible(prevVisible); stage.draw() }
 		return await new Promise<Blob | null>((resolve) => {
 			const baseImg = new Image()
 			baseImg.onload = () => {
@@ -1215,7 +1223,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 							))}
 					</Layer>
 					{/* Live home planet number badges */}
-					<Layer listening={false}>
+					<Layer listening={false} id="liveBadgesLayer">
 						{Array.from(liveHomeByPlayer.entries()).map(([playerIdx, pos]) => (
 							<Group key={`home-badge-${playerIdx}-${pos.nodeId}`} x={pos.x + 14} y={pos.y - 14}>
 								<Circle x={0} y={0} radius={12} fill="#ffffff" stroke="#111827" strokeWidth={2} />
