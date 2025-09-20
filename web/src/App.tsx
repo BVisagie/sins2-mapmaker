@@ -670,13 +670,21 @@ const exportZip = async () => {
 
         // Build scenario .scenario zip (must contain scenario_info.json, galaxy_chart.json, galaxy_chart_fillings.json, picture.png)
         const scenarioZip = new JSZip()
-        const info = buildScenarioInfoJSON(nodes, lanes, players, scenarioName, shortDescription)
+        // Build scenario_info using localization keys
+        const info = buildScenarioInfoJSON(nodes, lanes, players, scenarioFileBase)
         scenarioZip.file('scenario_info.json', JSON.stringify(info, null, 2))
         scenarioZip.file('galaxy_chart.json', JSON.stringify(scenario, null, 2))
         scenarioZip.file('galaxy_chart_fillings.json', JSON.stringify({ version: 1 }, null, 2))
         if (png) scenarioZip.file('picture.png', png)
         const scenarioZipData = await scenarioZip.generateAsync({ type: 'uint8array' })
         zip.file(`${root}scenarios/${scenarioFileBase}.scenario`, scenarioZipData)
+
+        // Localized text for scenario name/description
+        const loc: Record<string, string> = {}
+        loc[scenarioFileBase] = preferredDisplayName
+        const descText = (shortDescription && shortDescription.trim().length > 0) ? shortDescription.trim() : `${scenarioName} created with www.sins2-mapmaker.com`
+        loc[`${scenarioFileBase}_desc`] = descText
+        zip.file(`${root}localized_text/en.localized_text`, JSON.stringify(loc, null, 2))
 
         // Optional logo file
         if (logoDataUrl) {
@@ -1459,15 +1467,15 @@ function buildScenarioUniformsObject(scenarioName: string) {
     }
 }
 
-function buildScenarioInfoJSON(nodes: NodeItem[], lanes: PhaseLane[], players: number, scenarioName: string, desc: string) {
+function buildScenarioInfoJSON(nodes: NodeItem[], lanes: PhaseLane[], players: number, scenarioKey: string) {
     // Determine flags
     const hasWormholes = nodes.some(n => toGameFillingName(n.filling_name) === 'wormhole_fixture') || lanes.some(l => l.type === 'wormhole')
     const nonStars = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category !== 'star')
     const planetCount = nonStars.length
     const starCount = nodes.length - nonStars.length
-    // Use plain text name/description (no localization keys)
-    const nameText = scenarioName.replace(/_/g, ' ')
-    const descText = (desc && desc.trim().length > 0 ? desc : `${scenarioName} created with www.sins2-mapmaker.com`)
+    // Use localization keys; game will resolve from en.localized_text
+    const nameText = scenarioKey
+    const descText = `${scenarioKey}_desc`
     return {
         version: 1,
         name: nameText,
