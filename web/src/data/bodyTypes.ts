@@ -86,7 +86,8 @@ export const EDITOR_TO_GAME_FILLING: Record<string, string> = {
     planet_barren: 'random_fair_planet',
     planet_volcanic: 'random_volcanic_planet',
     planet_ice: 'random_ice_planet',
-    planet_primordial: 'random_primordial_planet',
+    // Primordial appears unsupported in current game builds; map to fair planet for compatibility
+    planet_primordial: 'random_fair_planet',
     planet_terran: 'random_terran_planet',
     planet_desert: 'random_desert_planet',
     planet_ferrous: 'random_ferrous_planet',
