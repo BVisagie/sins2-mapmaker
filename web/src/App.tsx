@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type React from 'react'
-import { Stage, Layer, Circle, Line, Text as KonvaText } from 'react-konva'
+import { Stage, Layer, Circle, Line, Group, Text as KonvaText } from 'react-konva'
 import JSZip from 'jszip'
 import Ajv, { type ValidateFunction } from 'ajv'
 import './index.css'
@@ -351,6 +351,20 @@ const [players, setPlayers] = useState<number>(2)
 
 	// Derive current star nodes for convenience
 	const starNodes = useMemo(() => nodes.filter(n => bodyTypeById.get(n.filling_name)?.category === 'star'), [nodes])
+
+	// Derive first home planet per player index for live canvas badges
+	const liveHomeByPlayer = useMemo(() => {
+		const map = new Map<number, { x: number; y: number; nodeId: number }>()
+		nodes.forEach(n => {
+			const cat = bodyTypeById.get(n.filling_name)?.category
+			const p = n.ownership?.player_index
+			if (cat === 'star') return
+			if (typeof p === 'number' && p >= 1 && !map.has(p)) {
+				map.set(p, { x: n.position.x, y: n.position.y, nodeId: n.id })
+			}
+		})
+		return map
+	}, [nodes])
 
 	// Keep the parent star selector valid and helpful
 	useEffect(() => {
@@ -764,26 +778,26 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 						homeByPlayer.set(p, { x: n.position.x, y: n.position.y })
 					}
 				})
-				// Draw numbered badges near homes (offset by crop)
-                const badgeRadius = Math.max(6, Math.round(10 * scale * pixelRatio))
-                const badgeOffsetX = Math.round(12 * scale * pixelRatio)
-                const badgeOffsetY = Math.round(-12 * scale * pixelRatio)
-				ctx.textAlign = 'center'
-				ctx.textBaseline = 'middle'
-                ctx.font = `${Math.max(8, Math.round(12 * scale * pixelRatio))}px sans-serif`
-				for (const [playerIdx, pos] of homeByPlayer) {
-                    const x = Math.round((pos.x - cropX) * scale * pixelRatio) + offsetX * pixelRatio + badgeOffsetX
-                    const y = Math.round((pos.y - cropY) * scale * pixelRatio) + offsetY * pixelRatio + badgeOffsetY
-					ctx.beginPath()
-					ctx.arc(x, y, badgeRadius, 0, Math.PI * 2)
-					ctx.fillStyle = 'rgba(0,0,0,0.85)'
-					ctx.fill()
-					ctx.lineWidth = 2 * pixelRatio
-					ctx.strokeStyle = '#ffffff'
-					ctx.stroke()
-					ctx.fillStyle = '#ffffff'
-					ctx.fillText(String(playerIdx), x, y)
-				}
+				// Draw numbered badges near homes (offset by crop) with high-contrast styling
+					const badgeRadius = Math.max(10, Math.round(14 * scale * pixelRatio))
+					const badgeOffsetX = Math.round(14 * scale * pixelRatio)
+					const badgeOffsetY = Math.round(-14 * scale * pixelRatio)
+					ctx.textAlign = 'center'
+					ctx.textBaseline = 'middle'
+					ctx.font = `${Math.max(10, Math.round(14 * scale * pixelRatio))}px system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif`
+					for (const [playerIdx, pos] of homeByPlayer) {
+						const x = Math.round((pos.x - cropX) * scale * pixelRatio) + offsetX * pixelRatio + badgeOffsetX
+						const y = Math.round((pos.y - cropY) * scale * pixelRatio) + offsetY * pixelRatio + badgeOffsetY
+						ctx.beginPath()
+						ctx.arc(x, y, badgeRadius, 0, Math.PI * 2)
+						ctx.fillStyle = '#ffffff'
+						ctx.fill()
+						ctx.lineWidth = 2 * pixelRatio
+						ctx.strokeStyle = '#111827'
+						ctx.stroke()
+						ctx.fillStyle = '#111827'
+						ctx.fillText(String(playerIdx), x, y)
+					}
 				canvas.toBlob((blob) => resolve(blob), 'image/png')
 			}
 			baseImg.onerror = () => resolve(null)
@@ -1174,7 +1188,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 								<KonvaText x={stageWidth / 2 - 160} y={stageHeight / 2 - 10} text="Add a Star or Planet with the Tools panel" fill="#888" />
 							)}
 						</Layer>
-						<Layer>
+					<Layer>
 							{lanes.map(l => {
 								const a = nodes.find(n => n.id === l.node_a)
 								const b = nodes.find(n => n.id === l.node_b)
@@ -1199,7 +1213,16 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 									onClick={() => onNodeClick(n.id)}
 								/>
 							))}
-						</Layer>
+					</Layer>
+					{/* Live home planet number badges */}
+					<Layer listening={false}>
+						{Array.from(liveHomeByPlayer.entries()).map(([playerIdx, pos]) => (
+							<Group key={`home-badge-${playerIdx}-${pos.nodeId}`} x={pos.x + 14} y={pos.y - 14}>
+								<Circle x={0} y={0} radius={12} fill="#ffffff" stroke="#111827" strokeWidth={2} />
+								<KonvaText x={-12} y={-12} width={24} height={24} align="center" verticalAlign="middle" text={String(playerIdx)} fill="#111827" fontSize={14} fontFamily="system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif" />
+							</Group>
+						))}
+					</Layer>
 					</Stage>
 				<div className="absolute bottom-2 left-2 text-xs opacity-60">Tips: Link to create lanes; Delete Lanes to remove</div>
 				{reassignStarModalOpen && reassignSourceStarId != null && (
