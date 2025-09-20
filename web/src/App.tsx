@@ -4,6 +4,7 @@ import { Stage, Layer, Circle, Line, Group, Text as KonvaText } from 'react-konv
 import JSZip from 'jszip'
 import Ajv, { type ValidateFunction } from 'ajv'
 import './index.css'
+import LZString from 'lz-string'
 
 const APP_VERSION = '0.6.0'
 // Only these body types may be owned by players
@@ -1516,19 +1517,25 @@ function sanitizeName(name: string) {
 }
 
 function encodeState(obj: any) {
-	const json = JSON.stringify(obj)
-	const utf8 = new TextEncoder().encode(json)
-	let binary = ''
-	for (let i = 0; i < utf8.length; i++) binary += String.fromCharCode(utf8[i])
-	const b64 = btoa(binary)
-	return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
+    const json = JSON.stringify(obj)
+    // Compress to base64-safe URI component
+    return LZString.compressToEncodedURIComponent(json)
 }
 function decodeState(s: string) {
-	const pad = s.length % 4 === 0 ? s : s + '=== '.slice(0, 4 - (s.length % 4))
-	const b64 = pad.replace(/-/g, '+').replace(/_/g, '/')
-	const binary = atob(b64)
-	const bytes = new Uint8Array(binary.length)
-	for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-	const json = new TextDecoder().decode(bytes)
-	return JSON.parse(json)
+    // Try LZString first
+    try {
+        const json = LZString.decompressFromEncodedURIComponent(s)
+        if (json) return JSON.parse(json)
+    } catch {}
+    // Fallback to legacy base64url decoding for backward compatibility
+    try {
+        const pad = s.length % 4 === 0 ? s : s + '=== '.slice(0, 4 - (s.length % 4))
+        const b64 = pad.replace(/-/g, '+').replace(/_/g, '/')
+        const binary = atob(b64)
+        const bytes = new Uint8Array(binary.length)
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+        const json = new TextDecoder().decode(bytes)
+        return JSON.parse(json)
+    } catch {}
+    return null
 }
