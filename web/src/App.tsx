@@ -787,20 +787,21 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 					}
 				})
 				// Draw numbered badges near homes (offset by crop) with high-contrast styling
-					const badgeRadius = Math.max(10, Math.round(14 * scale * pixelRatio))
-					const badgeOffsetX = Math.round(14 * scale * pixelRatio)
-					const badgeOffsetY = Math.round(-14 * scale * pixelRatio)
+					const stageToCanvasScale = scale * pixelRatio
+					const badgeRadius = Math.max(10, Math.round(14 * stageToCanvasScale))
+					const badgeOffsetX = Math.round(14 * stageToCanvasScale)
+					const badgeOffsetY = Math.round(-14 * stageToCanvasScale)
 					ctx.textAlign = 'center'
 					ctx.textBaseline = 'middle'
-					ctx.font = `${Math.max(10, Math.round(14 * scale * pixelRatio))}px system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif`
+					ctx.font = `${Math.max(10, Math.round(14 * stageToCanvasScale))}px system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif`
 					for (const [playerIdx, pos] of homeByPlayer) {
-						const x = Math.round((pos.x - cropX) * scale * pixelRatio) + offsetX * pixelRatio + badgeOffsetX
-						const y = Math.round((pos.y - cropY) * scale * pixelRatio) + offsetY * pixelRatio + badgeOffsetY
+						const x = Math.round((pos.x - cropX) * stageToCanvasScale) + offsetX + badgeOffsetX
+						const y = Math.round((pos.y - cropY) * stageToCanvasScale) + offsetY + badgeOffsetY
 						ctx.beginPath()
 						ctx.arc(x, y, badgeRadius, 0, Math.PI * 2)
 						ctx.fillStyle = '#ffffff'
 						ctx.fill()
-						ctx.lineWidth = 2 * pixelRatio
+						ctx.lineWidth = Math.max(1, Math.round(2 * stageToCanvasScale))
 						ctx.strokeStyle = '#111827'
 						ctx.stroke()
 						ctx.fillStyle = '#111827'
