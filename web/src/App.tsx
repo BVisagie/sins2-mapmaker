@@ -1473,9 +1473,9 @@ function buildScenarioInfoJSON(nodes: NodeItem[], lanes: PhaseLane[], players: n
     const nonStars = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category !== 'star')
     const planetCount = nonStars.length
     const starCount = nodes.length - nonStars.length
-    // Use localization keys; game will resolve from en.localized_text
-    const nameText = scenarioKey
-    const descText = `${scenarioKey}_desc`
+    // Use colon-prefixed keys, matching working examples
+    const nameText = `:${scenarioKey.replace(/_/g, ' ')}`
+    const descText = `:${scenarioKey.replace(/_/g, ' ')}_desc`
     return {
         version: 1,
         name: nameText,

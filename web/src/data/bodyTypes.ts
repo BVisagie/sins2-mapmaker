@@ -11,11 +11,14 @@ export interface BodyType {
 export const BODY_TYPES: BodyType[] = [
 	// Stars
     { id: 'star', label: 'Yellow Star (Main Sequence)', category: 'star', radius: 20, color: '#fbbf24' },
+    { id: 'star_yellow', label: 'Yellow Star', category: 'star', radius: 20, color: '#fbbf24' },
+    { id: 'star_orange', label: 'Orange Star', category: 'star', radius: 21, color: '#f59e0b' },
     { id: 'star_red_giant', label: 'Red Giant', category: 'star', radius: 24, color: '#ef4444' },
     { id: 'star_white_dwarf', label: 'White Dwarf', category: 'star', radius: 12, color: '#e5e7eb' },
     { id: 'star_neutron', label: 'Neutron Star', category: 'star', radius: 10, color: '#a855f7' },
     { id: 'star_blue_giant', label: 'Blue Giant', category: 'star', radius: 26, color: '#60a5fa' },
     { id: 'star_binary', label: 'Binary Star', category: 'star', radius: 26, color: '#f43f5e' },
+    { id: 'star_black_hole', label: 'Black Hole Star', category: 'star', radius: 24, color: '#111827' },
 
 	// Colonizable planets (curated)
     { id: 'planet_asteroid', label: 'Asteroid (Poor)', category: 'planet', radius: 12, color: '#9ca3af' },
@@ -28,12 +31,14 @@ export const BODY_TYPES: BodyType[] = [
 	{ id: 'planet_volcanic', label: 'Volcanic (Fair)', category: 'planet', radius: 14, color: '#ea580c' },
 	{ id: 'planet_ice', label: 'Ice (Fair)', category: 'planet', radius: 14, color: '#60a5fa' },
 	{ id: 'planet_primordial', label: 'Primordial (Rich)', category: 'planet', radius: 15, color: '#10b981' },
+    { id: 'planet_swamp', label: 'Swamp (Rich)', category: 'planet', radius: 14, color: '#16a34a' },
 	{ id: 'planet_terran', label: 'Terran (Rich)', category: 'planet', radius: 14, color: '#22c55e' },
 	{ id: 'planet_desert', label: 'Desert (Rich)', category: 'planet', radius: 14, color: '#fbbf24' },
 	{ id: 'planet_ferrous', label: 'Ferrous (Rich)', category: 'planet', radius: 14, color: '#92400e' },
 	{ id: 'planet_crystalline', label: 'Crystalline (Rich)', category: 'planet', radius: 14, color: '#8b5cf6' },
 	{ id: 'planet_oceanic', label: 'Oceanic (Rich)', category: 'planet', radius: 14, color: '#2563eb' },
-	{ id: 'planet_geomagnetic', label: 'Geomagnetic (Rich)', category: 'planet', radius: 14, color: '#d946ef' },
+    { id: 'planet_geomagnetic', label: 'Geomagnetic (Rich)', category: 'planet', radius: 14, color: '#d946ef' },
+    { id: 'planet_greenhouse', label: 'Greenhouse (Rich)', category: 'planet', radius: 14, color: '#84cc16' },
 	{ id: 'planet_city', label: 'City (Rich)', category: 'planet', radius: 15, color: '#f472b6' },
 	{ id: 'planet_gas_giant', label: 'Gas Giant (Special)', category: 'planet', radius: 18, color: '#7c3aed' },
 	{ id: 'planet_ship_graveyard', label: 'Ship Graveyard (Special)', category: 'planet', radius: 14, color: '#4b5563' },
@@ -70,11 +75,14 @@ export function getBodyColorById(id: string): string {
 export const EDITOR_TO_GAME_FILLING: Record<string, string> = {
     // Stars
     star: 'random_star',
+    star_yellow: 'random_yellow_star',
+    star_orange: 'random_orange_star',
     star_red_giant: 'random_red_star',
     star_white_dwarf: 'random_white_star',
     star_neutron: 'random_neutron_star',
     star_blue_giant: 'random_blue_star',
     star_binary: 'random_binary_star',
+    star_black_hole: 'random_black_hole_star',
 
     // Colonizable planets
     planet_asteroid: 'random_poor_planet',
@@ -83,17 +91,18 @@ export const EDITOR_TO_GAME_FILLING: Record<string, string> = {
     planet_moon: 'random_poor_planet',
     planet_ice_moon: 'random_poor_planet',
     planet_volcanic_moon: 'random_poor_planet',
-    planet_barren: 'random_fair_planet',
+    planet_barren: 'random_barren_planet',
     planet_volcanic: 'random_volcanic_planet',
     planet_ice: 'random_ice_planet',
-    // Primordial appears unsupported in current game builds; map to fair planet for compatibility
-    planet_primordial: 'random_fair_planet',
+    planet_primordial: 'random_primordial_planet',
+    planet_swamp: 'random_swamp_planet',
     planet_terran: 'random_terran_planet',
     planet_desert: 'random_desert_planet',
     planet_ferrous: 'random_ferrous_planet',
     planet_crystalline: 'random_crystalline_planet',
     planet_oceanic: 'random_oceanic_planet',
-    planet_geomagnetic: 'random_geomagnetic_planet',
+    planet_geomagnetic: 'random_magnetic_planet',
+    planet_greenhouse: 'random_greenhouse_planet',
     planet_city: 'random_city_planet',
     planet_gas_giant: 'random_gas_giant_planet',
     planet_ship_graveyard: 'random_ship_graveyard_planet',
@@ -103,9 +112,9 @@ export const EDITOR_TO_GAME_FILLING: Record<string, string> = {
     asteroid_field: 'random_asteroid',
     asteroid_belt: 'random_asteroid',
     dead_asteroid: 'random_asteroid',
-    // Moon visuals (fallback to poor planet class for gameplay)
-    moon_small: 'random_poor_planet',
-    moon_large: 'random_poor_planet',
+    // Moons
+    moon_small: 'random_moon_planet',
+    moon_large: 'random_moon_planet',
 
     // Specials
     wormhole: 'wormhole_fixture',
