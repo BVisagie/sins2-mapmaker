@@ -89,8 +89,8 @@ export const EDITOR_TO_GAME_FILLING: Record<string, string> = {
     planet_ice_asteroid: 'random_poor_planet',
     planet_hive_asteroid: 'random_poor_planet',
     planet_moon: 'random_poor_planet',
-    planet_ice_moon: 'random_poor_planet',
-    planet_volcanic_moon: 'random_poor_planet',
+    planet_ice_moon: 'random_ice_moon_planet',
+    planet_volcanic_moon: 'random_volcanic_moon_planet',
     planet_barren: 'random_barren_planet',
     planet_volcanic: 'random_volcanic_planet',
     planet_ice: 'random_ice_planet',
@@ -112,7 +112,7 @@ export const EDITOR_TO_GAME_FILLING: Record<string, string> = {
     // Asteroids and fields (non-colonizable fixtures in game terms)
     asteroid_field: 'random_asteroid',
     asteroid_belt: 'random_asteroid',
-    dead_asteroid: 'random_asteroid',
+    dead_asteroid: 'random_dead_asteroid',
     // Moons
     moon_small: 'random_moon_planet',
     moon_large: 'random_moon_planet',
