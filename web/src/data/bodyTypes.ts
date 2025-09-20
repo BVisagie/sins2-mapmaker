@@ -94,7 +94,8 @@ export const EDITOR_TO_GAME_FILLING: Record<string, string> = {
     planet_barren: 'random_barren_planet',
     planet_volcanic: 'random_volcanic_planet',
     planet_ice: 'random_ice_planet',
-    planet_primordial: 'random_primordial_planet',
+    // Primordial appears unsupported in current builds; use rich planet bucket
+    planet_primordial: 'random_rich_planet',
     planet_swamp: 'random_swamp_planet',
     planet_terran: 'random_terran_planet',
     planet_desert: 'random_desert_planet',
