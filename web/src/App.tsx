@@ -353,6 +353,13 @@ const [players, setPlayers] = useState<number>(2)
 	// Derive current star nodes for convenience
 	const starNodes = useMemo(() => nodes.filter(n => bodyTypeById.get(n.filling_name)?.category === 'star'), [nodes])
 
+	// Derive NPC planets for live badges
+	const liveNpcPlanets = useMemo(() => {
+		return nodes
+			.filter(n => bodyTypeById.get(n.filling_name)?.category !== 'star' && !!n.ownership?.npc_filling_name)
+			.map(n => ({ id: n.id, x: n.position.x, y: n.position.y, name: n.ownership!.npc_filling_name! }))
+	}, [nodes])
+
 	// Derive first home planet per player index for live canvas badges
 	const liveHomeByPlayer = useMemo(() => {
 		const map = new Map<number, { x: number; y: number; nodeId: number }>()
@@ -672,7 +679,7 @@ const exportZip = async () => {
         // Build scenario .scenario zip (must contain scenario_info.json, galaxy_chart.json, galaxy_chart_fillings.json, picture.png)
         const scenarioZip = new JSZip()
         // Build scenario_info using localization keys
-        const info = buildScenarioInfoJSON(nodes, lanes, players, scenarioFileBase)
+    const info = buildScenarioInfoJSON(nodes, lanes, players, scenarioFileBase)
         scenarioZip.file('scenario_info.json', JSON.stringify(info, null, 2))
         scenarioZip.file('galaxy_chart.json', JSON.stringify(scenario, null, 2))
         scenarioZip.file('galaxy_chart_fillings.json', JSON.stringify({ version: 1 }, null, 2))
@@ -815,6 +822,24 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 						ctx.stroke()
 						ctx.fillStyle = '#111827'
 						ctx.fillText(String(playerIdx), x, y)
+					}
+					// Draw NPC badges on snapshot
+					const npcPlanets = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category !== 'star' && !!n.ownership?.npc_filling_name)
+					for (const n of npcPlanets) {
+						const x = Math.round((n.position.x - cropX) * stageToCanvasScale) + offsetX - Math.round(14 * stageToCanvasScale)
+						const y = Math.round((n.position.y - cropY) * stageToCanvasScale) + offsetY - Math.round(14 * stageToCanvasScale)
+						ctx.beginPath()
+						ctx.arc(x, y, Math.max(8, Math.round(10 * stageToCanvasScale)), 0, Math.PI * 2)
+						ctx.fillStyle = '#f59e0b'
+						ctx.fill()
+						ctx.lineWidth = Math.max(1, Math.round(2 * stageToCanvasScale))
+						ctx.strokeStyle = '#111827'
+						ctx.stroke()
+						ctx.fillStyle = '#111827'
+						ctx.textAlign = 'center'
+						ctx.textBaseline = 'middle'
+						ctx.font = `${Math.max(9, Math.round(12 * stageToCanvasScale))}px system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif`
+						ctx.fillText('N', x, y)
 					}
 				canvas.toBlob((blob) => resolve(blob), 'image/png')
 			}
@@ -1240,6 +1265,12 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 								<KonvaText x={-12} y={-12} width={24} height={24} align="center" verticalAlign="middle" text={String(playerIdx)} fill="#111827" fontSize={14} fontFamily="system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif" />
 							</Group>
 						))}
+						{liveNpcPlanets.map(p => (
+							<Group key={`npc-badge-${p.id}`} x={p.x - 14} y={p.y - 14}>
+								<Circle x={0} y={0} radius={10} fill="#f59e0b" stroke="#111827" strokeWidth={2} />
+								<KonvaText x={-10} y={-10} width={20} height={20} align="center" verticalAlign="middle" text="N" fill="#111827" fontSize={12} fontFamily="system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif" />
+							</Group>
+						))}
 					</Layer>
 					</Stage>
 				<div className="absolute bottom-2 left-2 text-xs opacity-60">Tips: Link to create lanes; Delete Lanes to remove</div>
@@ -1406,6 +1437,7 @@ function buildScenarioJSON(nodes: NodeItem[], lanes: PhaseLane[], skybox: string
         const computedFilling = ((): string => {
             const idx = n.ownership?.player_index
             if (typeof idx === 'number' && playerHomePlanetByIndex.get(idx) === n.id) return 'player_home_planet'
+            if (n.ownership?.npc_filling_name) return 'player_home_planet'
             return toGameFillingName(n.filling_name)
         })()
         // If the editor body is pirate base, ensure we export pirate ownership when none is provided
@@ -1477,6 +1509,7 @@ function buildScenarioInfoJSON(nodes: NodeItem[], lanes: PhaseLane[], players: n
     // Use colon-prefixed keys, matching working examples
     const nameText = `:${scenarioKey.replace(/_/g, ' ')}`
     const descText = `:${scenarioKey.replace(/_/g, ' ')}_desc`
+    const hasNpcs = nodes.some(n => !!n.ownership?.npc_filling_name)
     return {
         version: 1,
         name: nameText,
@@ -1490,6 +1523,7 @@ function buildScenarioInfoJSON(nodes: NodeItem[], lanes: PhaseLane[], players: n
         planet_counts: [planetCount, planetCount],
         star_counts: [starCount, starCount],
         has_wormholes: hasWormholes,
+        ...(hasNpcs ? { has_npcs: true } : {}),
         resources: 'scenario_options_view_resources_high',
         map_type: 'scenario_options_view_map_type_custom',
     }
