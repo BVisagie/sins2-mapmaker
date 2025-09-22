@@ -20,6 +20,7 @@ const STORAGE_KEYS = {
 interface Point { x: number; y: number }
 interface NodeOwnership {
 	player_index?: number
+		team_index?: number
 	npc_filling_type?: 'militia' | 'guardian' | 'enemy_faction' | 'friendly_faction'
 	npc_filling_name?: string
 	are_secondary_fixtures_owned?: boolean
@@ -271,10 +272,11 @@ export default function App() {
 			if (lanePairs.has(key)) w.push(`Duplicate lane detected between ${key}`)
 			lanePairs.add(key)
 		}
-		// Ownership player index validation
+		// Ownership player index validation (0-based)
 		for (const n of nodes) {
-			if (n.ownership?.player_index && (n.ownership.player_index < 1 || n.ownership.player_index > players)) {
-				w.push(`Node ${n.id} player_index out of range 1..${players}`)
+			const p = n.ownership?.player_index
+			if (typeof p === 'number' && (p < 0 || p >= players)) {
+				w.push(`Node ${n.id} player_index out of range 0..${Math.max(0, players - 1)}`)
 			}
 		}
 		// Each player may only own one non-star planet (home)
@@ -284,10 +286,10 @@ export default function App() {
 			const p = n.ownership?.player_index
 			if (cat === 'star') return
 			// Only allow specific player-ownable types
-			if (typeof p === 'number' && p >= 1 && !PLAYER_OWNABLE_TYPES.has(n.filling_name)) {
+			if (typeof p === 'number' && p >= 0 && !PLAYER_OWNABLE_TYPES.has(n.filling_name)) {
 				w.push(`Node ${n.id} (${n.filling_name}) cannot be player-owned. Allowed: terran, desert, ferrous, city`)
 			}
-			if (typeof p === 'number' && p >= 1) {
+			if (typeof p === 'number' && p >= 0) {
 				if (!ownedByPlayer.has(p)) ownedByPlayer.set(p, [])
 				ownedByPlayer.get(p)!.push(n.id)
 			}
@@ -299,6 +301,13 @@ export default function App() {
 		// Minimum players validation
 		if (players < 2) {
 			w.push('Players must be at least 2')
+		}
+		// Team index bounds validation (0..9)
+		for (const n of nodes) {
+			const t = n.ownership?.team_index
+			if (typeof t === 'number' && (t < 0 || t > 9)) {
+				w.push(`Node ${n.id} team_index out of range 0..9`)
+			}
 		}
 		// Star/body constraints
 		const starIds = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category === 'star').map(n => n.id)
@@ -401,7 +410,7 @@ export default function App() {
 			const cat = bodyTypeById.get(n.filling_name)?.category
 			const p = n.ownership?.player_index
 			if (cat === 'star') return
-			if (typeof p === 'number' && p >= 1 && !map.has(p)) {
+			if (typeof p === 'number' && p >= 0 && !map.has(p)) {
 				map.set(p, { x: n.position.x, y: n.position.y, nodeId: n.id })
 			}
 		})
@@ -812,29 +821,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
         const prevVisible = liveLayer ? liveLayer.visible() : undefined
         if (liveLayer) { liveLayer.visible(false); stage.draw() }
 
-		// Compute tight bounding box around all nodes (including radii)
-		if (nodes.length === 0) {
-			const dataUrlFull: string = stage.toDataURL({ pixelRatio })
-            // Restore live badges layer visibility immediately after capture
-            if (liveLayer && prevVisible !== undefined) { liveLayer.visible(prevVisible); stage.draw() }
-			return await new Promise<Blob | null>((resolve) => {
-				const img = new Image()
-				img.onload = () => {
-					const canvas = document.createElement('canvas')
-					canvas.width = img.width
-					canvas.height = img.height
-					const ctx = canvas.getContext('2d')
-					if (!ctx) { resolve(null); return }
-					ctx.fillStyle = '#000000'
-					ctx.fillRect(0, 0, canvas.width, canvas.height)
-					ctx.drawImage(img, 0, 0)
-					canvas.toBlob((blob) => resolve(blob), 'image/png')
-				}
-				img.onerror = () => resolve(null)
-				img.src = dataUrlFull
-			})
-		}
-
+		// Compute a tight crop around nodes; if nearly world-sized, fall back to full world
 		const stageW: number = stage.width()
 		const stageH: number = stage.height()
 		const pad = 40
@@ -846,22 +833,24 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 			maxX = Math.max(maxX, n.position.x + r)
 			maxY = Math.max(maxY, n.position.y + r)
 		})
-		if (!isFinite(minX) || !isFinite(minY) || !isFinite(maxX) || !isFinite(maxY)) {
-			minX = 0; minY = 0; maxX = stageW; maxY = stageH
+		let cropX = 0, cropY = 0, cropW = WORLD_WIDTH, cropH = WORLD_HEIGHT
+		if (isFinite(minX) && isFinite(minY) && isFinite(maxX) && isFinite(maxY)) {
+			const tightX = Math.max(0, Math.floor(minX - pad))
+			const tightY = Math.max(0, Math.floor(minY - pad))
+			const tightW = Math.min(WORLD_WIDTH - tightX, Math.ceil((maxX + pad) - tightX))
+			const tightH = Math.min(WORLD_HEIGHT - tightY, Math.ceil((maxY + pad) - tightY))
+			// If tight box is meaningfully smaller than the world, use it; else use full world
+			const tightArea = Math.max(1, tightW) * Math.max(1, tightH)
+			const worldArea = WORLD_WIDTH * WORLD_HEIGHT
+			const useTight = tightArea <= worldArea * 0.9
+			if (useTight && tightW > 0 && tightH > 0) {
+				cropX = tightX; cropY = tightY; cropW = tightW; cropH = tightH
+			}
 		}
-		let cropX = Math.max(0, Math.floor(minX - pad))
-		let cropY = Math.max(0, Math.floor(minY - pad))
-		let cropW = Math.ceil((maxX + pad) - cropX)
-		let cropH = Math.ceil((maxY + pad) - cropY)
-		if (cropX + cropW > stageW) cropW = stageW - cropX
-		if (cropY + cropH > stageH) cropH = stageH - cropY
-		if (cropW <= 0 || cropH <= 0) { cropX = 0; cropY = 0; cropW = stageW; cropH = stageH }
-
-		// Fit the crop region into the current stage viewport by temporarily adjusting view transform
+		// Fit the world into the viewport by temporarily adjusting the stage transform
 		const prevScaleX = stage.scaleX ? stage.scaleX() : 1
 		const prevScaleY = stage.scaleY ? stage.scaleY() : 1
 		const prevPos = stage.position ? stage.position() : { x: 0, y: 0 }
-		// Compute scale to fit crop into stage viewport
 		const fitScale = Math.min(stageW / cropW, stageH / cropH)
 		const fitX = Math.floor((stageW - cropW * fitScale) / 2 - cropX * fitScale)
 		const fitY = Math.floor((stageH - cropH * fitScale) / 2 - cropY * fitScale)
@@ -904,7 +893,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 					const cat = bodyTypeById.get(n.filling_name)?.category
 					const p = n.ownership?.player_index
 					if (cat === 'star') return
-					if (typeof p === 'number' && p >= 1 && !homeByPlayer.has(p)) {
+					if (typeof p === 'number' && p >= 0 && !homeByPlayer.has(p)) {
 						homeByPlayer.set(p, { x: n.position.x, y: n.position.y })
 					}
 				})
@@ -1321,7 +1310,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 								<div className="text-sm">Ownership</div>
 								<select
 									className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded"
-									value={selectedNode.ownership?.player_index ? 'player' : selectedNode.ownership?.npc_filling_type ? 'npc' : 'none'}
+				value={selectedNode.ownership?.player_index != null ? 'player' : selectedNode.ownership?.npc_filling_type ? 'npc' : 'none'}
 									onChange={e => {
 										const mode = e.target.value as 'none' | 'player' | 'npc'
 										if (mode === 'player') {
@@ -1330,16 +1319,16 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 												alert('Only Terran, Desert, Ferrous, or City planets can be player-owned.')
 												return
 											}
-											// Assign the first available player index (1..players) not used by other non-star planets
+						// Assign the first available player index (0..players-1) not used by other non-star planets
 											const used = new Set<number>()
 											nodes.forEach(m => {
 												if (m.id === selectedNode.id) return
 												const cat = bodyTypeById.get(m.filling_name)?.category
 												const p = m.ownership?.player_index
-												if (cat !== 'star' && typeof p === 'number' && p >= 1) used.add(p)
+							if (cat !== 'star' && typeof p === 'number' && p >= 0) used.add(p)
 											})
 											let assign: number | null = null
-											for (let i = 1; i <= players; i++) { if (!used.has(i)) { assign = i; break } }
+						for (let i = 0; i < players; i++) { if (!used.has(i)) { assign = i; break } }
 											if (assign == null) { alert('All player slots are already assigned to other planets.'); return }
 											setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { player_index: assign! } } : n))
 											return
@@ -1354,14 +1343,14 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 									<option value="npc">NPC</option>
 								</select>
 
-								{selectedNode.ownership?.player_index != null && (
+				{selectedNode.ownership?.player_index != null && (
 									<div className="space-y-1 mt-2">
-										<label className="block text-sm">Player Index (1..{players})</label>
-										<input type="number" min={1} max={players} className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={selectedNode.ownership.player_index}
+							<label className="block text-sm">Player Index (0..{Math.max(0, players - 1)})</label>
+							<input type="number" min={0} max={Math.max(0, players - 1)} className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={selectedNode.ownership.player_index}
 											onChange={e => setNodes(prev => {
 											// Enforce ownable types when setting player index directly
 											if (!PLAYER_OWNABLE_TYPES.has(selectedNode.filling_name)) { alert('Only Terran, Desert, Ferrous, or City planets can be player-owned.'); return prev }
-											const newIdx = Math.max(1, Math.min(players, Number(e.target.value) || 1))
+								const newIdx = Math.max(0, Math.min(Math.max(0, players - 1), Number(e.target.value) ?? 0))
 											const conflict = prev.some(m => m.id !== selectedNode.id && bodyTypeById.get(m.filling_name)?.category !== 'star' && m.ownership?.player_index === newIdx)
 											if (conflict) { alert(`Player ${newIdx} is already assigned to another planet.`); return prev }
 											return prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { ...n.ownership, player_index: newIdx } } : n)
@@ -1369,6 +1358,19 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 										/>
 									</div>
 								)}
+
+					{selectedNode.ownership?.player_index != null && (
+						<div className="space-y-1 mt-2">
+							<label className="block text-sm">Team Index (optional, 0..9)</label>
+							<input type="number" min={0} max={9} className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={selectedNode.ownership?.team_index ?? ''}
+								onChange={e => setNodes(prev => {
+								const v = e.target.value
+								const newTeam = v === '' ? undefined : Math.max(0, Math.min(9, Math.floor(Number(v) || 0)))
+								return prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { ...n.ownership, team_index: newTeam as any } } : n)
+							})}
+							/>
+						</div>
+					)}
 
 								{selectedNode.ownership?.npc_filling_type && (
 									<div className="space-y-1 mt-2">
@@ -1670,7 +1672,7 @@ function buildScenarioJSON(nodes: NodeItem[], lanes: PhaseLane[], skybox: string
     const playerHomePlanetByIndex = new Map<number, number>()
     for (const n of nonStars) {
         const idx = n.ownership?.player_index
-        if (typeof idx === 'number' && idx >= 1) {
+        if (typeof idx === 'number' && idx >= 0) {
             if (!playerHomePlanetByIndex.has(idx)) playerHomePlanetByIndex.set(idx, n.id)
         }
     }
@@ -1754,13 +1756,21 @@ function buildScenarioInfoJSON(nodes: NodeItem[], lanes: PhaseLane[], players: n
     const nameText = `:${scenarioKey.replace(/_/g, ' ')}`
     const descText = `:${scenarioKey.replace(/_/g, ' ')}_desc`
     const hasNpcs = nodes.some(n => !!n.ownership?.npc_filling_name)
+    // Compute team count if team_index values exist
+    const teamIndexes = new Set<number>()
+    for (const n of nonStars) {
+        const t = n.ownership?.team_index
+        if (typeof t === 'number' && t >= 0) teamIndexes.add(t)
+    }
+    const teamCount = teamIndexes.size > 0 ? teamIndexes.size : 0
+
     return {
         version: 1,
         name: nameText,
         description: descText,
         desired_player_slots_configuration: {
             player_count: Math.max(2, Math.min(10, Math.floor(players) || 2)),
-            team_count: 0,
+            team_count: teamCount,
         },
         can_gravity_wells_move: false,
         are_player_slots_randomized: false,
