@@ -6,7 +6,7 @@ import Ajv, { type ValidateFunction } from 'ajv'
 import './index.css'
 import LZString from 'lz-string'
 
-const APP_VERSION = '0.8.0'
+const APP_VERSION = '0.9.0'
 const WORLD_WIDTH = 2400
 const WORLD_HEIGHT = 2325
 // Only these body types may be owned by players
@@ -32,8 +32,6 @@ interface NodeItem {
 	parent_star_id?: number
     rotation?: number
     chance_of_loot?: number
-    has_artifact?: boolean
-    artifact_name?: string
 	initial_category: BodyTypeCategory
 }
 interface PhaseLane { id: number; node_a: number; node_b: number; type?: 'normal' | 'star' | 'wormhole' }
@@ -79,6 +77,7 @@ export default function App() {
 	const [ajvError, setAjvError] = useState<string | null>(null)
 	const [warnings, setWarnings] = useState<string[]>([])
 
+
 	// Parent star selection for creating new non-star bodies
 	const [newBodyParentStarId, setNewBodyParentStarId] = useState<number | null>(null)
 
@@ -98,6 +97,7 @@ export default function App() {
 	const [viewPos, setViewPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
 	const [manualView, setManualView] = useState<boolean>(false)
 	const [spacePressed, setSpacePressed] = useState<boolean>(false)
+	const [isPanningViaMouse, setIsPanningViaMouse] = useState<boolean>(false)
 	const panLast = useRef<{ x: number; y: number } | null>(null)
 
 	const ajv = useMemo(() => new Ajv({ allErrors: true, strict: false }), [])
@@ -243,8 +243,8 @@ export default function App() {
 		return () => clearTimeout(t)
     }, [nodes, lanes, scenarioName, skybox, players, showGrid, snapToGrid, gridSize, author, shortDescription, displayName, displayVersion, logoDataUrl])
 
-	// Compute simple warnings
-	useEffect(() => {
+		// Compute simple warnings
+		useEffect(() => {
 		const w: string[] = []
 		// Self-loop lanes
 		for (const l of lanes) {
@@ -371,7 +371,17 @@ export default function App() {
 			// Informative only; uniforms flag checked on export
 		}
 
-		setWarnings(w)
+			// Enforce loot fields for all nodes (stars and bodies)
+			for (const n of nodes) {
+				if (typeof n.chance_of_loot !== 'number') {
+					w.push(`Node ${n.id} requires Chance of Loot`)
+				}
+				if (typeof n.chance_of_loot === 'number' && typeof (n as any).loot_level !== 'number') {
+					w.push(`Node ${n.id} requires Loot Level`)
+				}
+			}
+
+			setWarnings(w)
 	}, [lanes, nodes, players])
 
 	// Derive current star nodes for convenience
@@ -500,7 +510,7 @@ export default function App() {
 				return
 			}
 		}
-		const newNode: NodeItem = {
+		let newNode: NodeItem = {
 			id,
 			filling_name: filling,
 			position: { x: 200 + Math.random() * 600, y: 160 + Math.random() * 400 },
@@ -1162,10 +1172,10 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
                                         value={selectedNode.chance_of_loot ?? ''}
                                         onChange={e => {
                                             const v = e.target.value
-                                            setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, chance_of_loot: (v === '' ? undefined : Number(v)) } : n))
+                                            setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, chance_of_loot: Number(v) } : n))
                                         }}
                                     >
-                                        <option value="">(unspecified)</option>
+                                        <option value="" disabled>Select Chance of Loot…</option>
                                         <option value={0}>0% — Never</option>
                                         <option value={0.1}>10% — Rare</option>
                                         <option value={0.25}>25% — Uncommon</option>
@@ -1175,33 +1185,23 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
                                     </select>
                                 </label>
                                 <label className="block text-xs opacity-80">Loot Level
-                                    <select className="w-full mt-1 px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={(nodes.find(n => n.id === selectedNode.id) as any)?.loot_level ?? ''}
+                                    <select
+                                        className="w-full mt-1 px-2 py-1 bg-neutral-900 border border-white/10 rounded"
+                                        value={(nodes.find(n => n.id === selectedNode.id) as any)?.loot_level ?? ''}
+                                        disabled={typeof selectedNode.chance_of_loot !== 'number'}
                                         onChange={e => {
                                             const v = e.target.value
-                                            setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ...(v === '' ? { loot_level: undefined } : { loot_level: Number(v) }) } : n))
+                                            setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, loot_level: Number(v) } : n))
                                         }}
                                     >
-                                        <option value="">(unspecified)</option>
+                                        <option value="" disabled>Select Loot Level…</option>
                                         <option value={0}>0 — None</option>
                                         <option value={1}>1 — Small</option>
                                         <option value={2}>2 — Large</option>
                                     </select>
                                 </label>
                             </div>
-                            <div className="mt-2">
-                                <label className="inline-flex items-center gap-2 text-sm">
-                                    <input type="checkbox" checked={!!selectedNode.has_artifact} onChange={e => setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, has_artifact: e.target.checked, ...(e.target.checked ? {} : { artifact_name: undefined }) } : n))} />
-                                    Has Artifact
-                                </label>
-                                {selectedNode.has_artifact && (
-                                    <div className="mt-1">
-                                        <label className="block text-xs opacity-80">Artifact Name</label>
-                                        <input className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={selectedNode.artifact_name ?? ''}
-                                            onChange={e => setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, artifact_name: e.target.value } : n))}
-                                        />
-                                    </div>
-                                )}
-                            </div>
+								{/* Artifact fields removed */}
 								{bodyTypeById.get(selectedNode.filling_name)?.category !== 'star' && (
 									<div className="mt-1">
 										<label className="block text-xs opacity-80">Parent Star</label>
@@ -1424,20 +1424,28 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 				e.preventDefault()
 			}}
 			onMouseDown={e => {
+				// Middle mouse (button === 1) always enables panning; Space+left also pans
+				if (e.button === 1) {
+					setIsPanningViaMouse(true)
+					panLast.current = { x: e.clientX, y: e.clientY }
+					e.preventDefault()
+					return
+				}
 				if (!spacePressed) return
 				panLast.current = { x: e.clientX, y: e.clientY }
 			}}
 			onMouseMove={e => {
-				if (!spacePressed || !panLast.current) return
+				if (!(spacePressed || isPanningViaMouse) || !panLast.current) return
 				const dx = e.clientX - panLast.current.x
 				const dy = e.clientY - panLast.current.y
 				panLast.current = { x: e.clientX, y: e.clientY }
 				setViewPos(p => ({ x: p.x + dx, y: p.y + dy }))
 				setManualView(true)
 			}}
-			onMouseUp={() => { panLast.current = null }}
+			onMouseUp={() => { panLast.current = null; setIsPanningViaMouse(false) }}
+			onMouseLeave={() => { panLast.current = null; setIsPanningViaMouse(false) }}
 		>
-			<Stage ref={stageRef} width={stageWidth} height={stageHeight} x={viewPos.x} y={viewPos.y} scaleX={viewScale} scaleY={viewScale} style={{ background: 'black', cursor: spacePressed ? 'grab' : (laneDeleteMode ? 'not-allowed' : linkMode ? 'crosshair' : 'default') }}>
+			<Stage ref={stageRef} width={stageWidth} height={stageHeight} x={viewPos.x} y={viewPos.y} scaleX={viewScale} scaleY={viewScale} style={{ background: 'black', cursor: (spacePressed || isPanningViaMouse) ? 'grab' : (laneDeleteMode ? 'not-allowed' : linkMode ? 'crosshair' : 'default') }}>
 						<Layer listening={false}>
 						{showGrid && renderGrid(WORLD_WIDTH, WORLD_HEIGHT, gridSize)}
 							{nodes.length === 0 && (
@@ -1556,6 +1564,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 									<li>Use <span className="opacity-100">Add Body</span> for a planet, or <span className="opacity-100">Add Star</span>.</li>
 									<li>Select a node to change its <span className="opacity-100">Body Type</span>.</li>
 									<li>Drag nodes to reposition; enable <span className="opacity-100">Snap to Grid</span> for tidy layouts.</li>
+									<li>Navigate: press the middle mouse button and drag (or hold Space + drag).</li>
 								</ul>
 							</div>
 					<div>
@@ -1688,8 +1697,7 @@ function buildScenarioJSON(nodes: NodeItem[], lanes: PhaseLane[], skybox: string
             ...(typeof (n as any).rotation === 'number' ? { rotation: (n as any).rotation } : {}),
             ...(typeof n.chance_of_loot === 'number' ? { chance_of_loot: n.chance_of_loot } : {}),
             ...(typeof (n as any).loot_level === 'number' ? { loot_level: (n as any).loot_level } : {}),
-            ...(n.has_artifact ? { has_artifact: true } : {}),
-            ...(n.has_artifact && n.artifact_name ? { artifact_name: n.artifact_name } : {}),
+            // artifact export removed
             ...(exportOwnership ? { ownership: exportOwnership } : {}),
         }
     }
