@@ -6,7 +6,7 @@ import Ajv, { type ValidateFunction } from 'ajv'
 import './index.css'
 import LZString from 'lz-string'
 
-const APP_VERSION = '0.6.0'
+const APP_VERSION = '0.7.0'
 // Only these body types may be owned by players
 const PLAYER_OWNABLE_TYPES = new Set<string>(['planet_terran', 'planet_desert', 'planet_ferrous', 'planet_city'])
 const STORAGE_KEYS = {
@@ -621,6 +621,31 @@ const [players, setPlayers] = useState<number>(2)
 	}
 
 const exportZip = async () => {
+    // Strict check: block export if any node has an unrecognized body id that does not
+    // map to a valid game filling and is not a known game filling id shape.
+    const isGameFillingId = (id: string): boolean => {
+        // Allow known direct game ids/patterns that may appear from older shares
+        const patterns = [
+            /^random_.+$/,                 // all random_* buckets and fixtures/stars
+            /^player_home_planet$/,        // computed for player homes
+            /^home_.+_planet$/,            // home_* planet variants
+            /^wormhole_fixture$/,          // wormhole
+        ]
+        return patterns.some(r => r.test(id))
+    }
+    const unknownIds = Array.from(new Set(nodes
+        .map(n => n.filling_name)
+        .filter(id => {
+            const mapped = toGameFillingName(id)
+            if (mapped !== id) return false // curated mapping exists
+            if (bodyTypeById.has(id)) return false // curated id exists without mapping (should be rare)
+            return !isGameFillingId(id)
+        })
+    ))
+    if (unknownIds.length > 0) {
+        setAjvError('Unrecognized body types present: ' + unknownIds.join(', ') + '\nPlease change them to supported options before export.')
+        return
+    }
     const scenario = buildScenarioJSON(nodes, lanes, skybox)
     const sanitized = sanitizeName(scenarioName)
     // Preserve case and underscores for file base and uniforms entry
@@ -987,8 +1012,21 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 								<option key={s.id} value={s.id}>Star {s.id}</option>
 							))}
 						</select>
-						<button className="px-3 py-1 rounded border border-white/20 bg-neutral-900 disabled:opacity-40" disabled={starNodes.length === 0 || newBodyParentStarId == null} onClick={() => addNode(undefined)}>Add Body</button>
-								<button className="px-3 py-1 rounded border border-white/20 bg-neutral-900" onClick={() => addNode('star')}>Add Star</button>
+								<button
+									className="px-3 py-1 rounded border border-white/20 bg-neutral-900 disabled:opacity-40"
+									disabled={starNodes.length === 0 || newBodyParentStarId == null}
+									title={`${DEFAULT_BODY_TYPE_ID} → ${toGameFillingName(DEFAULT_BODY_TYPE_ID)}`}
+									onClick={() => addNode(undefined)}
+								>
+									Add Body
+								</button>
+								<button
+									className="px-3 py-1 rounded border border-white/20 bg-neutral-900"
+									title={`star → ${toGameFillingName('star')}`}
+									onClick={() => addNode('star')}
+								>
+									Add Star
+								</button>
 								<button className="px-3 py-1 rounded border border-white/20 bg-neutral-900 disabled:opacity-40" disabled={selectedId == null} onClick={removeSelected}>Remove Selected</button>
 								<button className="px-3 py-1 rounded border border-white/20 bg-neutral-900 disabled:opacity-40" disabled={lanes.length === 0} onClick={removeLastLane}>Undo Lane</button>
 							</div>
@@ -1008,23 +1046,36 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 								<div className="font-medium text-sm">Selected Node</div>
 								<div className="text-xs opacity-75">id: {selectedNode.id}</div>
                             <div className="grid grid-cols-2 gap-2 mt-1">
-                                <label className="block text-xs opacity-80">Rotation
-                                    <input type="number" step={0.1} className="w-full mt-1 px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={selectedNode.rotation ?? ''}
+                                <label className="block text-xs opacity-80">Chance of Loot
+                                    <select
+                                        className="w-full mt-1 px-2 py-1 bg-neutral-900 border border-white/10 rounded"
+                                        value={selectedNode.chance_of_loot ?? ''}
                                         onChange={e => {
                                             const v = e.target.value
-                                            setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, rotation: v === '' ? undefined : Number(v) } : n))
+                                            setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, chance_of_loot: (v === '' ? undefined : Number(v)) } : n))
                                         }}
-                                    />
+                                    >
+                                        <option value="">(unspecified)</option>
+                                        <option value={0}>0% — Never</option>
+                                        <option value={0.1}>10% — Rare</option>
+                                        <option value={0.25}>25% — Uncommon</option>
+                                        <option value={0.5}>50% — Even</option>
+                                        <option value={0.75}>75% — Common</option>
+                                        <option value={1}>100% — Always</option>
+                                    </select>
                                 </label>
-                                <label className="block text-xs opacity-80">Chance of Loot (0..1)
-                                    <input type="number" min={0} max={1} step={0.05} className="w-full mt-1 px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={selectedNode.chance_of_loot ?? ''}
+                                <label className="block text-xs opacity-80">Loot Level
+                                    <select className="w-full mt-1 px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={(nodes.find(n => n.id === selectedNode.id) as any)?.loot_level ?? ''}
                                         onChange={e => {
                                             const v = e.target.value
-                                            let num = v === '' ? undefined : Number(v)
-                                            if (typeof num === 'number') num = Math.max(0, Math.min(1, num as number))
-                                            setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, chance_of_loot: (num as number | undefined) } : n))
+                                            setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ...(v === '' ? { loot_level: undefined } : { loot_level: Number(v) }) } : n))
                                         }}
-                                    />
+                                    >
+                                        <option value="">(unspecified)</option>
+                                        <option value={0}>0 — None</option>
+                                        <option value={1}>1 — Small</option>
+                                        <option value={2}>2 — Large</option>
+                                    </select>
                                 </label>
                             </div>
                             <div className="mt-2">
@@ -1121,18 +1172,22 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 								setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, filling_name: newTypeId, parent_star_id: parentStarId ?? undefined } : n))
 							}}
 								>
-							{selectedNode.initial_category === 'star' ? (
-								<optgroup label="Stars (Bundled)">
-									{bundled.stars.map(b => <option key={b.id} value={b.id}>{b.label}</option>)}
-								</optgroup>
-							) : (
-								<optgroup label="Bodies (Bundled)">
-									{[...bundled.planets, ...bundled.moons, ...bundled.asteroids, ...bundled.special].map(b => (
-										<option key={b.id} value={b.id}>{b.label}</option>
-									))}
-								</optgroup>
-							)}
+								{selectedNode.initial_category === 'star' ? (
+									<optgroup label="Stars (Bundled)">
+										{bundled.stars.map(b => (
+											<option key={b.id} value={b.id} title={`${b.id} → ${toGameFillingName(b.id)}`}>{b.label}</option>
+										))}
+									</optgroup>
+								) : (
+									<optgroup label="Bodies (Bundled)">
+										{[...bundled.planets, ...bundled.moons, ...bundled.asteroids, ...bundled.special].map(b => (
+											<option key={b.id} value={b.id} title={`${b.id} → ${toGameFillingName(b.id)}`}>{b.label}</option>
+										))}
+									</optgroup>
+								)}
 								</select>
+
+								<div className="text-xs opacity-70 mt-1">Game filling: <span className="opacity-90">{toGameFillingName(selectedNode.filling_name)}</span></div>
 
 						{bodyTypeById.get(selectedNode.filling_name)?.category !== 'star' && (
 							<div className="mt-2">
@@ -1348,8 +1403,10 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 					<div>
 						<div className="text-xs font-medium opacity-90">Node Extras</div>
 						<ul className="text-xs opacity-80 list-disc pl-5 space-y-1 mt-1">
-							<li>Rotation and loot chance are optional per-node fields.</li>
-							<li>Artifacts can be toggled and named to match in-game artifacts.</li>
+									<li>Chance of Loot uses presets (0/10/25/50/75/100%) and exports 0..1.</li>
+									<li>Loot Level options: 0 — None, 1 — Small, 2 — Large.</li>
+									<li>Artifacts can be toggled and named to match in-game artifacts.</li>
+									<li>Body Type tooltips show editor id → game filling mapping.</li>
 						</ul>
 					</div>
 							<div>
@@ -1446,12 +1503,15 @@ function buildScenarioJSON(nodes: NodeItem[], lanes: PhaseLane[], skybox: string
             if (n.filling_name === 'planet_pirate_base') return { npc_filling_name: 'pirate' }
             return undefined
         })()
+        // Include optional loot_level if provided on node
         return {
             id: n.id,
             filling_name: computedFilling,
             position: [n.position.x, n.position.y] as [number, number],
-            ...(typeof n.rotation === 'number' ? { rotation: n.rotation } : {}),
+            // rotation removed from UI; only export if present in loaded data
+            ...(typeof (n as any).rotation === 'number' ? { rotation: (n as any).rotation } : {}),
             ...(typeof n.chance_of_loot === 'number' ? { chance_of_loot: n.chance_of_loot } : {}),
+            ...(typeof (n as any).loot_level === 'number' ? { loot_level: (n as any).loot_level } : {}),
             ...(n.has_artifact ? { has_artifact: true } : {}),
             ...(n.has_artifact && n.artifact_name ? { artifact_name: n.artifact_name } : {}),
             ...(exportOwnership ? { ownership: exportOwnership } : {}),

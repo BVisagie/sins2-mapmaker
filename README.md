@@ -7,7 +7,7 @@ Live Demo: https://www.sins2-mapmaker.com/
 Browser-based scenario editor for Sins of a Solar Empire II.
 
 - Tech: React + Vite + TypeScript, Tailwind, React Konva, AJV, JSZip
-- Features: nodes (stars/planets/moons/asteroids/special), parent-star assignment, lane types (normal/star/wormhole), ownership & players, grid/snap, per-star limits, warnings, share URL, export to mod zip
+- Features: nodes (stars/planets/moons/asteroids/special), parent-star assignment, lane types (normal/star/wormhole), ownership & players, grid/snap, per-star limits, warnings, tooltips with game filling mapping, share URL, export to mod zip
 
 ## Prerequisites
 
@@ -40,7 +40,7 @@ Open the app at the printed URL.
   - Add Star
   - Add Body (requires choosing a Parent Star in Tools)
   - Select and drag; edit Body Type from a bundled list
-  - Optional per-node fields: Rotation, Chance of Loot (0..1), Artifact toggle/name
+- Optional per-node fields: Chance of Loot (presets: 0/10/25/50/75/100%), Loot Level (0 — None, 1 — Small, 2 — Large), Artifact toggle/name
   - Remove Selected (with safeguards for linked nodes and stars with children)
 - Tools
   - Parent Star selector for creating/assigning non-star bodies
@@ -62,6 +62,7 @@ Open the app at the printed URL.
 - Export
   - Validates `.scenario` and `scenario.uniforms` via AJV against bundled clean-room schemas
   - Blocks export if warnings exist
+  - Blocks export on unrecognized body types (must be bundled or valid game ids like random_* / home_* / wormhole_fixture)
   - Downloads `<ScenarioName>.zip`
 
 ## Body Types
@@ -96,6 +97,7 @@ These schemas are original to this repository and used solely to validate the ed
 Notes:
 
 - The app does not bundle or use any files from the official mod tools.
+- Schema updates: `loot_level` allows 0; `primary_fixture_override_name` supported on nodes.
 - The editor exports JSON conforming to the clean-room schemas above; compatibility targets the game’s general expectations but does not rely on proprietary definitions.
 
 ## Build & Preview
