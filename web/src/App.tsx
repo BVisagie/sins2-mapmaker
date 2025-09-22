@@ -6,7 +6,9 @@ import Ajv, { type ValidateFunction } from 'ajv'
 import './index.css'
 import LZString from 'lz-string'
 
-const APP_VERSION = '0.7.1'
+const APP_VERSION = '0.8.0'
+const WORLD_WIDTH = 2400
+const WORLD_HEIGHT = 2325
 // Only these body types may be owned by players
 const PLAYER_OWNABLE_TYPES = new Set<string>(['planet_terran', 'planet_desert', 'planet_ferrous', 'planet_city'])
 const STORAGE_KEYS = {
@@ -36,7 +38,8 @@ interface NodeItem {
 }
 interface PhaseLane { id: number; node_a: number; node_b: number; type?: 'normal' | 'star' | 'wormhole' }
 
-import { BODY_TYPES, DEFAULT_BODY_TYPE_ID, getBodyRadiusById, bodyTypeById, getBodyColorById, toGameFillingName } from './data/bodyTypes'
+import { BODY_TYPES, DEFAULT_BODY_TYPE_ID, getBodyRadiusById, bodyTypeById, getBodyColorById, toGameFillingName, humanizeGameFillingName } from './data/bodyTypes'
+import type { BodyType } from './data/bodyTypes'
 import type { BodyTypeCategory } from './data/bodyTypes'
 
 interface ProjectStateSnapshot {
@@ -62,8 +65,8 @@ export default function App() {
 	const [selectedId, setSelectedId] = useState<number | null>(1)
 	const [scenarioName, setScenarioName] = useState<string>('MyScenario')
 	const [skybox, setSkybox] = useState<string>('skybox_random')
-const [players, setPlayers] = useState<number>(2)
-    const [modCompatVersion, setModCompatVersion] = useState<number>(2)
+	const [players, setPlayers] = useState<number>(2)
+	    const [modCompatVersion, setModCompatVersion] = useState<number>(2)
     const [author, setAuthor] = useState<string>('')
     const [shortDescription, setShortDescription] = useState<string>('')
     const [displayName, setDisplayName] = useState<string>('')
@@ -91,6 +94,11 @@ const [players, setPlayers] = useState<number>(2)
 	const stageRef = useRef<any>(null)
 	const canvasRef = useRef<HTMLDivElement>(null)
 	const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 })
+	const [viewScale, setViewScale] = useState<number>(1)
+	const [viewPos, setViewPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+	const [manualView, setManualView] = useState<boolean>(false)
+	const [spacePressed, setSpacePressed] = useState<boolean>(false)
+	const panLast = useRef<{ x: number; y: number } | null>(null)
 
 	const ajv = useMemo(() => new Ajv({ allErrors: true, strict: false }), [])
     const [validateScenario, setValidateScenario] = useState<ValidateFunction | null>(null)
@@ -152,7 +160,18 @@ const [players, setPlayers] = useState<number>(2)
 				// Skybox is fixed to skybox_random in the editor UI
 				if (typeof decoded.players === 'number') setPlayers(Math.max(2, Math.min(10, decoded.players)))
 				setScenarioName(decoded.scenarioName || 'SharedScenario')
-                if (typeof decoded.modCompatVersion === 'number') setModCompatVersion(Math.max(1, Math.floor(decoded.modCompatVersion)))
+				if (typeof decoded.modCompatVersion === 'number') setModCompatVersion(Math.max(1, Math.floor(decoded.modCompatVersion)))
+				// Restore scenario metadata if present
+				if (typeof decoded.author === 'string') setAuthor(decoded.author)
+				if (typeof decoded.shortDescription === 'string') setShortDescription(decoded.shortDescription)
+				if (typeof decoded.displayName === 'string') setDisplayName(decoded.displayName)
+				if (typeof decoded.displayVersion === 'string') setDisplayVersion(decoded.displayVersion)
+				if (decoded.logoDataUrl != null) setLogoDataUrl(decoded.logoDataUrl as string | null)
+				if (decoded.grid && typeof decoded.grid === 'object') {
+					if (typeof decoded.grid.showGrid === 'boolean') setShowGrid(decoded.grid.showGrid)
+					if (typeof decoded.grid.snapToGrid === 'boolean') setSnapToGrid(decoded.grid.snapToGrid)
+					if (typeof decoded.grid.gridSize === 'number') setGridSize(decoded.grid.gridSize)
+				}
                 nextNodeId.current = (decoded.nodes.reduce((m: number, n: NodeItem) => Math.max(m, n.id), 0) || 0) + 1
 				nextLaneId.current = (decoded.lanes.reduce((m: number, l: PhaseLane) => Math.max(m, l.id), 0) || 0) + 1
 			}
@@ -185,7 +204,8 @@ const [players, setPlayers] = useState<number>(2)
 				nextLaneId.current = (snap.lanes.reduce((m, l) => Math.max(m, l.id), 0) || 0) + 1
 			}
 			if (typeof snap.scenarioName === 'string') setScenarioName(snap.scenarioName)
-            if (typeof (snap as any).modCompatVersion === 'number') setModCompatVersion(Math.max(1, Math.floor((snap as any).modCompatVersion)))
+			// Force compatibility version to 2 regardless of loaded project
+			setModCompatVersion(2)
             if (typeof (snap as any).author === 'string') setAuthor((snap as any).author)
             if (typeof (snap as any).shortDescription === 'string') setShortDescription((snap as any).shortDescription)
             if (typeof (snap as any).displayName === 'string') setDisplayName((snap as any).displayName)
@@ -209,7 +229,7 @@ const [players, setPlayers] = useState<number>(2)
 			scenarioName,
 			skybox,
 			players,
-            modCompatVersion,
+	            modCompatVersion: 2,
             author,
             shortDescription,
 			displayName,
@@ -401,16 +421,48 @@ const [players, setPlayers] = useState<number>(2)
 		}
 	}, [starNodes, selectedId, nodes, newBodyParentStarId])
 
-	// Track canvas size responsively
+	// Track canvas size responsively and fit world if not manually adjusted
 	useEffect(() => {
 		const compute = () => {
 			if (!canvasRef.current) return
 			const rect = canvasRef.current.getBoundingClientRect()
-			setCanvasSize({ width: Math.max(0, Math.floor(rect.width)), height: Math.max(0, Math.floor(rect.height)) })
+			const width = Math.max(0, Math.floor(rect.width))
+			const height = Math.max(0, Math.floor(rect.height))
+			setCanvasSize({ width, height })
+			if (!manualView) {
+				const s = Math.min(width / WORLD_WIDTH, height / WORLD_HEIGHT) || 1
+				const x = Math.floor((width - WORLD_WIDTH * s) / 2)
+				const y = Math.floor((height - WORLD_HEIGHT * s) / 2)
+				setViewScale(s)
+				setViewPos({ x, y })
+			}
 		}
 		compute()
 		window.addEventListener('resize', compute)
 		return () => window.removeEventListener('resize', compute)
+	}, [manualView])
+
+	// Space key toggles panning mode
+	useEffect(() => {
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.key !== ' ') return
+			const target = e.target as HTMLElement | null
+			const tag = target?.tagName
+			const inEditable = !!(target && (target.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'))
+			if (inEditable) return
+			setSpacePressed(true)
+		}
+		const onKeyUp = (e: KeyboardEvent) => {
+			if (e.key !== ' ') return
+			setSpacePressed(false)
+			panLast.current = null
+		}
+		window.addEventListener('keydown', onKeyDown)
+		window.addEventListener('keyup', onKeyUp)
+		return () => {
+			window.removeEventListener('keydown', onKeyDown)
+			window.removeEventListener('keyup', onKeyUp)
+		}
 	}, [])
 
 	const updateNodePosition = (id: number, pos: Point) => {
@@ -687,9 +739,9 @@ const exportZip = async () => {
             return
         }
         const preferredDisplayName = displayName.trim()
-        zip.file(`${root}.mod_meta_data`, buildModMetaData({
+		zip.file(`${root}.mod_meta_data`, buildModMetaData({
             scenarioName,
-            compatVersion: modCompatVersion,
+			compatVersion: 2,
             displayName: preferredDisplayName,
             displayVersion: displayVersion && displayVersion.trim().length > 0 ? displayVersion.trim() : '1.0.0',
             author,
@@ -795,7 +847,22 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 		if (cropY + cropH > stageH) cropH = stageH - cropY
 		if (cropW <= 0 || cropH <= 0) { cropX = 0; cropY = 0; cropW = stageW; cropH = stageH }
 
-		const dataUrl: string = stage.toDataURL({ x: cropX, y: cropY, width: cropW, height: cropH, pixelRatio })
+		// Fit the crop region into the current stage viewport by temporarily adjusting view transform
+		const prevScaleX = stage.scaleX ? stage.scaleX() : 1
+		const prevScaleY = stage.scaleY ? stage.scaleY() : 1
+		const prevPos = stage.position ? stage.position() : { x: 0, y: 0 }
+		// Compute scale to fit crop into stage viewport
+		const fitScale = Math.min(stageW / cropW, stageH / cropH)
+		const fitX = Math.floor((stageW - cropW * fitScale) / 2 - cropX * fitScale)
+		const fitY = Math.floor((stageH - cropH * fitScale) / 2 - cropY * fitScale)
+		if (stage.scale) stage.scale({ x: fitScale, y: fitScale })
+		if (stage.position) stage.position({ x: fitX, y: fitY })
+		stage.draw()
+		const dataUrl: string = stage.toDataURL({ pixelRatio })
+		// Restore previous view transform
+		if (stage.scale) stage.scale({ x: prevScaleX, y: prevScaleY })
+		if (stage.position) stage.position({ x: prevPos.x, y: prevPos.y })
+		stage.draw()
 		// Restore live badges layer visibility immediately after capture
 		if (liveLayer && prevVisible !== undefined) { liveLayer.visible(prevVisible); stage.draw() }
 		return await new Promise<Blob | null>((resolve) => {
@@ -878,7 +945,20 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 	}
 
 	const onShare = async () => {
-		const payload = { nodes, lanes, skybox, players, scenarioName }
+		const payload = {
+			nodes,
+			lanes,
+			skybox,
+			players,
+			scenarioName,
+			modCompatVersion,
+			author,
+			shortDescription,
+			displayName,
+			displayVersion,
+			logoDataUrl,
+			grid: { showGrid, snapToGrid, gridSize },
+		}
 		const encoded = encodeState(payload)
 		const url = new URL(window.location.href)
 		url.searchParams.set('s', encoded)
@@ -929,16 +1009,44 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 
 	const selectedNode = nodes.find(n => n.id === selectedId) || null
 
+	const labelForOption = (id: string): string => {
+		if (id === 'planet_pirate_base') return 'Pirate Base'
+		return humanizeGameFillingName(toGameFillingName(id))
+	}
+
+	const dedupeForSelect = (list: BodyType[]): BodyType[] => {
+		const seen = new Set<string>()
+		return list.filter(b => {
+			const mapped = toGameFillingName(b.id)
+			const keep = (selectedNode?.filling_name === b.id) || !seen.has(mapped)
+			if (keep) seen.add(mapped)
+			return keep
+		})
+	}
+
 	const stageWidth = canvasSize.width
 	const stageHeight = canvasSize.height
 
+	const fitView = () => {
+		const width = canvasSize.width
+		const height = canvasSize.height
+		const s = Math.min(width / WORLD_WIDTH, height / WORLD_HEIGHT) || 1
+		const x = Math.floor((width - WORLD_WIDTH * s) / 2)
+		const y = Math.floor((height - WORLD_HEIGHT * s) / 2)
+		setViewScale(s)
+		setViewPos({ x, y })
+		setManualView(false)
+	}
+
   return (
 		<div className="h-screen w-screen flex flex-col bg-black text-white">
+			<DevBanner />
 			<div className="h-12 border-b border-white/10 px-4 flex items-center justify-between">
 				<div className="font-semibold tracking-wide">Sins II Scenario Editor</div>
 				<div className="flex items-center gap-2">
 					<button className="px-3 py-1 rounded border border-white/20 bg-neutral-900" onClick={resetProject}>Reset</button>
 					<button className="px-3 py-1 rounded border border-white/20 bg-neutral-900" onClick={onShare}>Share</button>
+					<button className="px-3 py-1 rounded border border-white/20 bg-neutral-900" onClick={fitView}>Fit</button>
 					<button className="px-4 py-1.5 rounded bg-white text-black" onClick={exportZip}>Export</button>
 				</div>
 			</div>
@@ -966,8 +1074,8 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 						<div className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded opacity-60 select-none">skybox_random</div>
 						<label className="block text-xs opacity-80 mt-2">Players</label>
 						<input type="number" min={2} max={10} className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={players} onChange={e => setPlayers(Math.max(2, Math.min(10, Number(e.target.value) || 2)))} />
-					<label className="block text-xs opacity-80 mt-2">Compatibility Version</label>
-					<input type="number" min={1} className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={modCompatVersion} onChange={e => setModCompatVersion(Math.max(1, Math.floor(Number(e.target.value) || 1)))} />
+						<label className="block text-xs opacity-80 mt-2">Compatibility Version</label>
+						<div className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded opacity-60 select-none">2</div>
                     
 					<div className="mt-2">
 						<div className="block text-xs opacity-80">Logo (optional, square recommended)</div>
@@ -1017,16 +1125,14 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 							))}
 						</select>
 								<button
-									className="px-3 py-1 rounded border border-white/20 bg-neutral-900 disabled:opacity-40"
-									disabled={starNodes.length === 0 || newBodyParentStarId == null}
-									title={`${DEFAULT_BODY_TYPE_ID} → ${toGameFillingName(DEFAULT_BODY_TYPE_ID)}`}
+										className="px-3 py-1 rounded border border-white/20 bg-neutral-900 disabled:opacity-40"
+										disabled={starNodes.length === 0 || newBodyParentStarId == null}
 									onClick={() => addNode(undefined)}
 								>
 									Add Body
 								</button>
 								<button
 									className="px-3 py-1 rounded border border-white/20 bg-neutral-900"
-									title={`star → ${toGameFillingName('star')}`}
 									onClick={() => addNode('star')}
 								>
 									Add Star
@@ -1178,31 +1284,31 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 								>
 								{selectedNode.initial_category === 'star' ? (
 									<optgroup label="Stars">
-										{bundled.stars.map(b => (
-											<option key={b.id} value={b.id} title={`${b.id} → ${toGameFillingName(b.id)}`}>{b.label}</option>
-										))}
+								{dedupeForSelect(bundled.stars).map(b => (
+									<option key={b.id} value={b.id}>{labelForOption(b.id)}</option>
+								))}
 									</optgroup>
 								) : (
 									<>
 										<optgroup label="Planets">
-											{bundled.planets.map(b => (
-												<option key={b.id} value={b.id} title={`${b.id} → ${toGameFillingName(b.id)}`}>{b.label}</option>
-											))}
+									{dedupeForSelect(bundled.planets).map(b => (
+										<option key={b.id} value={b.id}>{labelForOption(b.id)}</option>
+									))}
 										</optgroup>
 										<optgroup label="Moons">
-											{bundled.moons.map(b => (
-												<option key={b.id} value={b.id} title={`${b.id} → ${toGameFillingName(b.id)}`}>{b.label}</option>
-											))}
+									{dedupeForSelect(bundled.moons).map(b => (
+										<option key={b.id} value={b.id}>{labelForOption(b.id)}</option>
+									))}
 										</optgroup>
 										<optgroup label="Asteroids">
-											{bundled.asteroids.map(b => (
-												<option key={b.id} value={b.id} title={`${b.id} → ${toGameFillingName(b.id)}`}>{b.label}</option>
-											))}
+									{dedupeForSelect(bundled.asteroids).map(b => (
+										<option key={b.id} value={b.id}>{labelForOption(b.id)}</option>
+									))}
 										</optgroup>
 										<optgroup label="Special">
-											{bundled.special.map(b => (
-												<option key={b.id} value={b.id} title={`${b.id} → ${toGameFillingName(b.id)}`}>{b.label}</option>
-											))}
+									{dedupeForSelect(bundled.special).map(b => (
+										<option key={b.id} value={b.id}>{labelForOption(b.id)}</option>
+									))}
 										</optgroup>
 									</>
 								)}
@@ -1299,12 +1405,43 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 						)}
 					</div>
 				</div>
-				<div ref={canvasRef} className="flex-1 relative">
-					<Stage ref={stageRef} width={stageWidth} height={stageHeight} style={{ background: 'black', cursor: laneDeleteMode ? 'not-allowed' : linkMode ? 'crosshair' : 'default' }}>
+		<div ref={canvasRef} className="flex-1 relative"
+			onWheel={e => {
+				// zoom to cursor
+				const scaleBy = 1.05
+				const stage = stageRef.current
+				if (!stage) return
+				const pointer = stage.getPointerPosition?.() || { x: e.clientX, y: e.clientY }
+				const mouseX = pointer.x
+				const mouseY = pointer.y
+				const direction = e.deltaY > 0 ? -1 : 1
+				const newScale = direction > 0 ? viewScale * scaleBy : viewScale / scaleBy
+				const worldPoint = { x: (mouseX - viewPos.x) / viewScale, y: (mouseY - viewPos.y) / viewScale }
+				const newPos = { x: mouseX - worldPoint.x * newScale, y: mouseY - worldPoint.y * newScale }
+				setViewScale(newScale)
+				setViewPos(newPos)
+				setManualView(true)
+				e.preventDefault()
+			}}
+			onMouseDown={e => {
+				if (!spacePressed) return
+				panLast.current = { x: e.clientX, y: e.clientY }
+			}}
+			onMouseMove={e => {
+				if (!spacePressed || !panLast.current) return
+				const dx = e.clientX - panLast.current.x
+				const dy = e.clientY - panLast.current.y
+				panLast.current = { x: e.clientX, y: e.clientY }
+				setViewPos(p => ({ x: p.x + dx, y: p.y + dy }))
+				setManualView(true)
+			}}
+			onMouseUp={() => { panLast.current = null }}
+		>
+			<Stage ref={stageRef} width={stageWidth} height={stageHeight} x={viewPos.x} y={viewPos.y} scaleX={viewScale} scaleY={viewScale} style={{ background: 'black', cursor: spacePressed ? 'grab' : (laneDeleteMode ? 'not-allowed' : linkMode ? 'crosshair' : 'default') }}>
 						<Layer listening={false}>
-							{showGrid && renderGrid(stageWidth, stageHeight, gridSize)}
+						{showGrid && renderGrid(WORLD_WIDTH, WORLD_HEIGHT, gridSize)}
 							{nodes.length === 0 && (
-								<KonvaText x={stageWidth / 2 - 160} y={stageHeight / 2 - 10} text="Add a Star or Planet with the Tools panel" fill="#888" />
+								<KonvaText x={WORLD_WIDTH / 2 - 160} y={WORLD_HEIGHT / 2 - 10} text="Add a Star or Planet with the Tools panel" fill="#888" />
 							)}
 						</Layer>
 					<Layer>
@@ -1327,8 +1464,8 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 								stroke={selectedId === n.id ? 'white' : undefined}
 								strokeWidth={selectedId === n.id ? 2 : 0}
 									draggable
-									dragBoundFunc={(pos) => snapToGrid ? { x: snap(pos.x, gridSize), y: snap(pos.y, gridSize) } : pos}
-									onDragEnd={e => updateNodePosition(n.id, { x: e.target.x(), y: e.target.y() })}
+								dragBoundFunc={(pos) => snapToGrid ? { x: snap(pos.x, gridSize), y: snap(pos.y, gridSize) } : pos}
+								onDragEnd={e => updateNodePosition(n.id, { x: e.target.x(), y: e.target.y() })}
 									onClick={() => onNodeClick(n.id)}
 								/>
 							))}
@@ -1485,6 +1622,24 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 					</div>
 				</div>
 	      </div>
+	)
+}
+
+function DevBanner() {
+	const [visible, setVisible] = useState<boolean>(() => {
+		try { return localStorage.getItem('sins2.devBannerDismissed') !== '1' } catch { return true }
+	})
+	useEffect(() => {
+		if (!visible) return
+		const t = setTimeout(() => setVisible(false), 10000)
+		return () => clearTimeout(t)
+	}, [visible])
+	if (!visible) return null
+	return (
+		<div className="w-full bg-yellow-500/10 text-yellow-300 text-xs px-4 py-2 border-b border-yellow-500/20 flex items-center justify-between">
+			<div>Active development: frequent updates may break in-progress maps. Please export often.</div>
+			<button className="text-yellow-200 hover:text-yellow-100" onClick={() => { setVisible(false); try { localStorage.setItem('sins2.devBannerDismissed', '1') } catch {} }}>Dismiss</button>
+		</div>
 	)
 }
 

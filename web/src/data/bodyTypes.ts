@@ -37,7 +37,7 @@ export const BODY_TYPES: BodyType[] = [
 	{ id: 'planet_city', label: 'City', category: 'planet', radius: 15, color: '#f472b6' },
 	{ id: 'planet_gas_giant', label: 'Gas Giant', category: 'planet', radius: 18, color: '#7c3aed' },
 	{ id: 'planet_ship_graveyard', label: 'Ship Graveyard', category: 'planet', radius: 14, color: '#4b5563' },
-	{ id: 'planet_pirate_base', label: 'Pirate Base', category: 'planet', radius: 14, color: '#991b1b' },
+	{ id: 'planet_pirate_base', label: 'Pirate Base', category: 'special', radius: 14, color: '#991b1b' },
 	// Additional planet variants (random_* support)
 	{ id: 'planet_brown_dwarf', label: 'Brown Dwarf', category: 'planet', radius: 16, color: '#8b5cf6' },
 	{ id: 'planet_irradiated', label: 'Irradiated', category: 'planet', radius: 14, color: '#f59e0b' },
@@ -132,6 +132,14 @@ export const EDITOR_TO_GAME_FILLING: Record<string, string> = {
 
 export function toGameFillingName(editorId: string): string {
     return EDITOR_TO_GAME_FILLING[editorId] ?? editorId
+}
+
+
+export function humanizeGameFillingName(fillingName: string): string {
+	return fillingName
+		.split('_')
+		.map(part => part ? part.charAt(0).toUpperCase() + part.slice(1).toLowerCase() : part)
+		.join(' ')
 }
 
 
