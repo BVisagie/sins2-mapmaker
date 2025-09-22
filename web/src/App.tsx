@@ -6,7 +6,7 @@ import Ajv, { type ValidateFunction } from 'ajv'
 import './index.css'
 import LZString from 'lz-string'
 
-const APP_VERSION = '0.7.0'
+const APP_VERSION = '0.7.1'
 // Only these body types may be owned by players
 const PLAYER_OWNABLE_TYPES = new Set<string>(['planet_terran', 'planet_desert', 'planet_ferrous', 'planet_city'])
 const STORAGE_KEYS = {
@@ -93,21 +93,25 @@ const [players, setPlayers] = useState<number>(2)
 	const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 })
 
 	const ajv = useMemo(() => new Ajv({ allErrors: true, strict: false }), [])
-	const [validateScenario, setValidateScenario] = useState<ValidateFunction | null>(null)
+    const [validateScenario, setValidateScenario] = useState<ValidateFunction | null>(null)
     const [validateUniforms, setValidateUniforms] = useState<ValidateFunction | null>(null)
 
 
 	// Bundled registry options grouped
-	const bundled = useMemo(() => {
-		const byCat = {
-			stars: BODY_TYPES.filter(b => b.category === 'star'),
-			planets: BODY_TYPES.filter(b => b.category === 'planet'),
-			moons: BODY_TYPES.filter(b => b.category === 'moon'),
-			asteroids: BODY_TYPES.filter(b => b.category === 'asteroid'),
-			special: BODY_TYPES.filter(b => b.category === 'special'),
-		}
-		return byCat
-	}, [])
+    const bundled = useMemo(() => {
+        const stars = BODY_TYPES.filter(b => b.category === 'star')
+        // Hide planet options unless they map to random_rich_planet or random_poor_planet
+        const planetsAll = BODY_TYPES.filter(b => b.category === 'planet')
+        const planets = planetsAll.filter(b => {
+            const game = toGameFillingName(b.id)
+            // Exclude only ambiguous buckets; keep all specific planet biomes
+            return !(game === 'random_rich_planet' || game === 'random_poor_planet')
+        })
+        const moons = BODY_TYPES.filter(b => b.category === 'moon')
+        const asteroids = BODY_TYPES.filter(b => b.category === 'asteroid')
+        const special = BODY_TYPES.filter(b => b.category === 'special')
+        return { stars, planets, moons, asteroids, special }
+    }, [])
 
 	// Load schemas once
     useEffect(() => {
@@ -1173,17 +1177,34 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 							}}
 								>
 								{selectedNode.initial_category === 'star' ? (
-									<optgroup label="Stars (Bundled)">
+									<optgroup label="Stars">
 										{bundled.stars.map(b => (
 											<option key={b.id} value={b.id} title={`${b.id} → ${toGameFillingName(b.id)}`}>{b.label}</option>
 										))}
 									</optgroup>
 								) : (
-									<optgroup label="Bodies (Bundled)">
-										{[...bundled.planets, ...bundled.moons, ...bundled.asteroids, ...bundled.special].map(b => (
-											<option key={b.id} value={b.id} title={`${b.id} → ${toGameFillingName(b.id)}`}>{b.label}</option>
-										))}
-									</optgroup>
+									<>
+										<optgroup label="Planets">
+											{bundled.planets.map(b => (
+												<option key={b.id} value={b.id} title={`${b.id} → ${toGameFillingName(b.id)}`}>{b.label}</option>
+											))}
+										</optgroup>
+										<optgroup label="Moons">
+											{bundled.moons.map(b => (
+												<option key={b.id} value={b.id} title={`${b.id} → ${toGameFillingName(b.id)}`}>{b.label}</option>
+											))}
+										</optgroup>
+										<optgroup label="Asteroids">
+											{bundled.asteroids.map(b => (
+												<option key={b.id} value={b.id} title={`${b.id} → ${toGameFillingName(b.id)}`}>{b.label}</option>
+											))}
+										</optgroup>
+										<optgroup label="Special">
+											{bundled.special.map(b => (
+												<option key={b.id} value={b.id} title={`${b.id} → ${toGameFillingName(b.id)}`}>{b.label}</option>
+											))}
+										</optgroup>
+									</>
 								)}
 								</select>
 
