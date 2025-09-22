@@ -10,7 +10,7 @@ export interface BodyType {
 
 export const BODY_TYPES: BodyType[] = [
 	// Stars
-    { id: 'star', label: 'Yellow Star (Main Sequence)', category: 'star', radius: 20, color: '#fbbf24' },
+	{ id: 'star', label: 'Random Star', category: 'star', radius: 20, color: '#fbbf24' },
     { id: 'star_yellow', label: 'Yellow Star', category: 'star', radius: 20, color: '#fbbf24' },
     { id: 'star_orange', label: 'Orange Star', category: 'star', radius: 21, color: '#f59e0b' },
     { id: 'star_red_giant', label: 'Red Giant', category: 'star', radius: 24, color: '#ef4444' },
