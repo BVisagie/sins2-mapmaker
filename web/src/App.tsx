@@ -1306,6 +1306,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
                             </div>
 
 								{/* Artifacts */}
+								{bodyTypeById.get(selectedNode.filling_name)?.category !== 'star' && (
 								<div className="mt-2">
 									<div className="text-sm">Artifact</div>
 									{(() => {
@@ -1365,6 +1366,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 										)
 									})()}
 								</div>
+								)}
 								{/* Artifact fields removed */}
 								{bodyTypeById.get(selectedNode.filling_name)?.category !== 'star' && (
 									<div className="mt-1">
