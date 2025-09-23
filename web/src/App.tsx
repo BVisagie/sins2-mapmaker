@@ -413,6 +413,15 @@ useEffect(() => {
 				if (typeof n.chance_of_loot === 'number' && typeof (n as any).loot_level !== 'number') {
 					w.push(`Node ${n.id} requires Loot Level`)
 				}
+				// If player-owned, loot must be exactly 0/0
+				if (typeof n.ownership?.player_index === 'number' && n.ownership.player_index >= 0) {
+					if ((n.chance_of_loot ?? 0) !== 0) {
+						w.push(`Node ${n.id} is player-owned and must have Chance of Loot = 0%`)
+					}
+					if (typeof (n as any).loot_level !== 'number' || (n as any).loot_level !== 0) {
+						w.push(`Node ${n.id} is player-owned and must have Loot Level = 0`)
+					}
+				}
 			}
 
 			setWarnings(w)
@@ -1206,11 +1215,13 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 							<div className="space-y-2 bg-neutral-900/30 border border-white/10 rounded p-3">
 								<div className="font-medium text-sm">Selected Node</div>
 								<div className="text-xs opacity-75">id: {selectedNode.id}</div>
-                            <div className="grid grid-cols-2 gap-2 mt-1">
-                                <label className="block text-xs opacity-80">Chance of Loot
+								<div className="grid grid-cols-2 gap-2 mt-1">
+									{selectedNode.ownership?.player_index == null && (<>
+									<label className="block text-xs opacity-80">Chance of Loot
                                     <select
                                         className="w-full mt-1 px-2 py-1 bg-neutral-900 border border-white/10 rounded"
-                                        value={selectedNode.chance_of_loot ?? ''}
+										value={selectedNode.chance_of_loot ?? ''}
+										disabled={selectedNode.ownership?.player_index != null}
                                         onChange={e => {
                                             const v = e.target.value
                                             const chance = Number(v)
@@ -1231,12 +1242,12 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
                                         <option value={0.75}>75% — Common</option>
                                         <option value={1}>100% — Always</option>
                                     </select>
-                                </label>
-                                <label className="block text-xs opacity-80">Loot Level
+									</label>
+									<label className="block text-xs opacity-80">Loot Level
                                     <select
                                         className="w-full mt-1 px-2 py-1 bg-neutral-900 border border-white/10 rounded"
                                         value={(nodes.find(n => n.id === selectedNode.id) as any)?.loot_level ?? ''}
-                                        disabled={typeof selectedNode.chance_of_loot !== 'number' || selectedNode.chance_of_loot === 0}
+										disabled={selectedNode.ownership?.player_index != null || typeof selectedNode.chance_of_loot !== 'number' || selectedNode.chance_of_loot === 0}
                                         onChange={e => {
                                             const v = e.target.value
                                             const lvl = Number(v)
@@ -1253,7 +1264,11 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
                                         <option value={1}>1 — Small</option>
                                         <option value={2}>2 — Large</option>
                                     </select>
-                                </label>
+									</label>
+									</>)}
+								{selectedNode.ownership?.player_index != null && (
+									<div className="col-span-2 text-xs opacity-60">Loot is not applicable for player-owned planets.</div>
+								)}
                             </div>
 								{/* Artifact fields removed */}
 								{bodyTypeById.get(selectedNode.filling_name)?.category !== 'star' && (
