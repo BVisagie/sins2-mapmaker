@@ -16,6 +16,21 @@ const STORAGE_KEYS = {
 	project: 'sins2.project',
 } as const
 
+// Allowed artifacts (game ids). Displayed with humanized labels in UI
+const ARTIFACT_OPTIONS = [
+    'culture_bonus_planet_artifact',
+    'matter_compressor_planet_artifact',
+    'exoforce_matrix_ship_artifact',
+    'kinetic_intensifier_ship_artifact',
+    'power_core_relic_ship_artifact',
+    'relativistic_factories_planet_artifact',
+    'resilient_metaloids_ship_artifact',
+    'research_archive_planet_artifact',
+    'weapon_symbiote_ship_artifact',
+    'tachyon_comms_relay_planet_artifact',
+    'mass_negation_core_ship_artifact',
+] as const
+
 // Types for a minimal internal data model
 interface Point { x: number; y: number }
 interface NodeOwnership {
@@ -32,6 +47,8 @@ interface NodeItem {
 	parent_star_id?: number
     rotation?: number
     chance_of_loot?: number
+	has_artifact?: boolean
+	artifact_name?: string
 	initial_category: BodyTypeCategory
 }
 interface PhaseLane { id: number; node_a: number; node_b: number; type?: 'normal' | 'star' | 'wormhole' }
@@ -420,6 +437,16 @@ useEffect(() => {
 					}
 					if (typeof (n as any).loot_level !== 'number' || (n as any).loot_level !== 0) {
 						w.push(`Node ${n.id} is player-owned and must have Loot Level = 0`)
+					}
+					// Player-owned planets cannot have artifacts
+					if (n.has_artifact) {
+						w.push(`Node ${n.id} is player-owned and cannot have an artifact`)
+					}
+				}
+				// If has_artifact is true, an artifact_name must be provided
+				if (n.has_artifact) {
+					if (!n.artifact_name || !ARTIFACT_OPTIONS.includes(n.artifact_name as any)) {
+						w.push(`Node ${n.id} has_artifact=true requires a valid Artifact Name`)
 					}
 				}
 			}
@@ -1266,10 +1293,62 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
                                     </select>
 									</label>
 									</>)}
-								{selectedNode.ownership?.player_index != null && (
-									<div className="col-span-2 text-xs opacity-60">Loot is not applicable for player-owned planets.</div>
-								)}
+									{selectedNode.ownership?.player_index != null && (
+										<div className="col-span-2 text-xs opacity-60">Loot is not applicable for player-owned planets.</div>
+									)}
                             </div>
+
+								{/* Artifacts */}
+								<div className="mt-2">
+									<div className="text-sm">Artifact</div>
+									{(() => {
+										const cat = bodyTypeById.get(selectedNode.filling_name)?.category
+										const isStar = cat === 'star'
+										const isPlayerOwned = selectedNode.ownership?.player_index != null
+										const isNpcOwned = !!selectedNode.ownership?.npc_filling_type
+										const eligible = !isStar && !isPlayerOwned && !isNpcOwned
+										return (
+											<div className="grid grid-cols-2 gap-2 mt-1">
+												<label className="block text-xs opacity-80">Has Artifact
+													<select
+														className="w-full mt-1 px-2 py-1 bg-neutral-900 border border-white/10 rounded"
+														value={eligible ? String(!!selectedNode.has_artifact) : 'false'}
+														disabled={!eligible}
+														onChange={e => {
+															const v = e.target.value === 'true'
+															setNodes(prev => prev.map(n => {
+																if (n.id !== selectedNode.id) return n
+																return v ? { ...n, has_artifact: true } : { ...n, has_artifact: false, artifact_name: undefined }
+															}))
+														}}
+													>
+														<option value="false">No</option>
+														<option value="true">Yes</option>
+													</select>
+												</label>
+												<label className="block text-xs opacity-80">Artifact Name
+													<select
+														className="w-full mt-1 px-2 py-1 bg-neutral-900 border border-white/10 rounded"
+														value={selectedNode.artifact_name ?? ''}
+														disabled={!eligible || !selectedNode.has_artifact}
+														onChange={e => {
+															const v = e.target.value
+															setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, artifact_name: v || undefined } : n))
+														}}
+													>
+														<option value="" disabled>Select Artifact…</option>
+														{ARTIFACT_OPTIONS.map(a => (
+															<option key={a} value={a}>{humanizeGameFillingName(a)}</option>
+														))}
+													</select>
+												</label>
+												{!eligible && (
+													<div className="col-span-2 text-xs opacity-60">Artifacts are only allowed on unowned, colonizable bodies.</div>
+												)}
+											</div>
+										)
+									})()}
+								</div>
 								{/* Artifact fields removed */}
 								{bodyTypeById.get(selectedNode.filling_name)?.category !== 'star' && (
 									<div className="mt-1">
@@ -1314,7 +1393,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 							if (initiallyStar && newCategory !== 'star') { alert('This star can only change to another star type.'); return }
 							if (!initiallyStar && newCategory === 'star') { alert('This body cannot change into a star.'); return }
 								const currentCategory = bodyTypeById.get(selectedNode.filling_name)?.category
-						if (newCategory === 'star') {
+									if (newCategory === 'star') {
 									// If switching from non-star to star, enforce ≤15 stars
 									if (currentCategory !== 'star') {
 										const starCount = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category === 'star').length
@@ -1323,7 +1402,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 											return
 										}
 									}
-									setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, filling_name: newTypeId, parent_star_id: undefined } : n))
+										setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, filling_name: newTypeId, parent_star_id: undefined, has_artifact: false, artifact_name: undefined } : n))
 									return
 								}
 								// For any non-star body, require a parent star
@@ -1348,7 +1427,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 									alert('Body limit per star reached (100).')
 									return
 								}
-								setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, filling_name: newTypeId, parent_star_id: parentStarId ?? undefined } : n))
+										setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, filling_name: newTypeId, parent_star_id: parentStarId ?? undefined } : n))
 							}}
 								>
 								{selectedNode.initial_category === 'star' ? (
@@ -1410,12 +1489,12 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 											let assign: number | null = null
 						for (let i = 0; i < players; i++) { if (!used.has(i)) { assign = i; break } }
 									if (assign == null) { alert('All player slots are already assigned to other planets.'); return }
-									setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { player_index: assign! }, chance_of_loot: 0, loot_level: 0 } : n))
+										setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { player_index: assign! }, chance_of_loot: 0, loot_level: 0, has_artifact: false, artifact_name: undefined } : n))
 											return
 										}
                                         if (mode === 'none') { setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: undefined, chance_of_loot: undefined, loot_level: undefined } : n)); return }
 										// npc
-                                        setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { npc_filling_type: 'militia', npc_filling_name: 'default' }, chance_of_loot: undefined, loot_level: undefined } : n))
+									setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { npc_filling_type: 'militia', npc_filling_name: 'default' }, chance_of_loot: undefined, loot_level: undefined, has_artifact: false, artifact_name: undefined } : n))
 									}}
 								>
 									<option value="none">Unowned</option>
@@ -1787,6 +1866,8 @@ function buildScenarioJSON(nodes: NodeItem[], lanes: PhaseLane[], skybox: string
             ...(typeof (n as any).rotation === 'number' ? { rotation: (n as any).rotation } : {}),
             ...(typeof n.chance_of_loot === 'number' ? { chance_of_loot: n.chance_of_loot } : {}),
             ...(typeof (n as any).loot_level === 'number' ? { loot_level: (n as any).loot_level } : {}),
+            ...(n.has_artifact ? { has_artifact: true } : {}),
+            ...(n.has_artifact && typeof n.artifact_name === 'string' ? { artifact_name: n.artifact_name } : {}),
             // artifact export removed
             ...(exportOwnership ? { ownership: exportOwnership } : {}),
         }
