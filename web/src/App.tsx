@@ -132,8 +132,8 @@ const teamCountOptions = useMemo(() => {
 	for (let teams = 2; teams <= p; teams++) {
 		if (p % teams !== 0) continue
 		const size = p / teams
-		// Allow 1v1 only when p==2; otherwise require at least 2 per team
-		if (!(size >= 2 || (p === 2 && teams === 2 && size === 1))) continue
+		// Require at least 2 players per team (no 1v1 option alongside FFA)
+		if (size < 2) continue
 		const label = Array.from({ length: teams }, () => String(size)).join('v')
 		opts.push({ value: teams, label })
 	}
@@ -144,6 +144,11 @@ useEffect(() => {
 	if (teamCount == null) return
 	if (!teamCountOptions.some(o => o.value === teamCount)) setTeamCount(null)
 }, [players, teamCount, teamCountOptions])
+
+// Default to FFA when there are exactly 2 players and no selection yet
+useEffect(() => {
+    if (players === 2 && teamCount == null) setTeamCount(0)
+}, [players, teamCount])
 
 // Load schemas once
     useEffect(() => {
