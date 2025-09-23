@@ -422,16 +422,22 @@ useEffect(() => {
 			// Informative only; uniforms flag checked on export
 		}
 
-			// Enforce loot fields for all nodes (stars and bodies)
+			// Enforce loot fields only for eligible nodes: unowned, non-NPC, non-star
 			for (const n of nodes) {
-				if (typeof n.chance_of_loot !== 'number') {
-					w.push(`Node ${n.id} requires Chance of Loot`)
-				}
-				if (typeof n.chance_of_loot === 'number' && typeof (n as any).loot_level !== 'number') {
-					w.push(`Node ${n.id} requires Loot Level`)
+				const category = bodyTypeById.get(n.filling_name)?.category
+				const isStar = category === 'star'
+				const isPlayerOwned = typeof n.ownership?.player_index === 'number' && n.ownership.player_index >= 0
+				const isNpcOwned = !!n.ownership?.npc_filling_type
+				if (!isStar && !isPlayerOwned && !isNpcOwned) {
+					if (typeof n.chance_of_loot !== 'number') {
+						w.push(`Node ${n.id} requires Chance of Loot`)
+					}
+					if (typeof n.chance_of_loot === 'number' && typeof (n as any).loot_level !== 'number') {
+						w.push(`Node ${n.id} requires Loot Level`)
+					}
 				}
 				// If player-owned, loot must be exactly 0/0
-				if (typeof n.ownership?.player_index === 'number' && n.ownership.player_index >= 0) {
+				if (isPlayerOwned) {
 					if ((n.chance_of_loot ?? 0) !== 0) {
 						w.push(`Node ${n.id} is player-owned and must have Chance of Loot = 0%`)
 					}
@@ -444,14 +450,14 @@ useEffect(() => {
 					}
 				}
 				// NPC-owned cannot have artifacts
-				if (n.ownership?.npc_filling_type) {
+				if (isNpcOwned) {
 					if (n.has_artifact) {
 						w.push(`Node ${n.id} is NPC-owned and cannot have an artifact`)
 					}
 				}
 				// If has_artifact is true, an artifact_name must be provided, and only on eligible categories
 				if (n.has_artifact) {
-					const cat = bodyTypeById.get(n.filling_name)?.category
+					const cat = category
 					const isPirateBase = n.filling_name === 'planet_pirate_base'
 					const allowedCategory = (cat === 'planet' || cat === 'moon' || cat === 'asteroid' || isPirateBase)
 					if (!allowedCategory) {
