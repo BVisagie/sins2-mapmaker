@@ -1248,6 +1248,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 							<div className="space-y-2 bg-neutral-900/30 border border-white/10 rounded p-3">
 								<div className="font-medium text-sm">Selected Node</div>
 								<div className="text-xs opacity-75">id: {selectedNode.id}</div>
+								<div className="text-sm">Loot</div>
 								<div className="grid grid-cols-2 gap-2 mt-1">
 									{selectedNode.ownership?.player_index == null && (<>
 									<label className="block text-xs opacity-80">Chance of Loot
