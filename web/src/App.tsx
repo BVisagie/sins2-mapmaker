@@ -46,6 +46,7 @@ interface ProjectStateSnapshot {
 	scenarioName: string
 	skybox: string
 	players: number
+	teamCount?: number
     modCompatVersion: number
 	grid: { showGrid: boolean; snapToGrid: boolean; gridSize: number }
     author?: string
@@ -64,6 +65,7 @@ export default function App() {
 	const [scenarioName, setScenarioName] = useState<string>('MyScenario')
 	const [skybox, setSkybox] = useState<string>('skybox_random')
 	const [players, setPlayers] = useState<number>(2)
+const [teamCount, setTeamCount] = useState<number | null>(null)
 	    const [modCompatVersion, setModCompatVersion] = useState<number>(2)
     const [author, setAuthor] = useState<string>('')
     const [shortDescription, setShortDescription] = useState<string>('')
@@ -121,7 +123,29 @@ export default function App() {
         return { stars, planets, moons, asteroids, special }
     }, [])
 
-	// Load schemas once
+// Recommended Team Count options based on Players
+const teamCountOptions = useMemo(() => {
+	const opts: { value: number; label: string }[] = []
+	// FFA always available
+	opts.push({ value: 0, label: 'FFA' })
+	const p = Math.max(2, Math.min(10, Math.floor(players) || 2))
+	for (let teams = 2; teams <= p; teams++) {
+		if (p % teams !== 0) continue
+		const size = p / teams
+		// Allow 1v1 only when p==2; otherwise require at least 2 per team
+		if (!(size >= 2 || (p === 2 && teams === 2 && size === 1))) continue
+		const label = Array.from({ length: teams }, () => String(size)).join('v')
+		opts.push({ value: teams, label })
+	}
+	return opts
+}, [players])
+
+useEffect(() => {
+	if (teamCount == null) return
+	if (!teamCountOptions.some(o => o.value === teamCount)) setTeamCount(null)
+}, [players, teamCount, teamCountOptions])
+
+// Load schemas once
     useEffect(() => {
 		async function loadSchemas() {
 			const [scenarioRes, uniformsRes] = await Promise.all([
@@ -158,7 +182,8 @@ export default function App() {
 				setLanes(decoded.lanes)
 				setSelectedId(decoded.nodes[0]?.id ?? null)
 				// Skybox is fixed to skybox_random in the editor UI
-				if (typeof decoded.players === 'number') setPlayers(Math.max(2, Math.min(10, decoded.players)))
+                if (typeof decoded.players === 'number') setPlayers(Math.max(2, Math.min(10, decoded.players)))
+                if (typeof (decoded as any).teamCount === 'number') setTeamCount(Math.max(0, Math.min(10, Math.floor((decoded as any).teamCount))))
 				setScenarioName(decoded.scenarioName || 'SharedScenario')
 				if (typeof decoded.modCompatVersion === 'number') setModCompatVersion(Math.max(1, Math.floor(decoded.modCompatVersion)))
 				// Restore scenario metadata if present
@@ -212,7 +237,8 @@ export default function App() {
             if (typeof (snap as any).displayVersion === 'string') setDisplayVersion((snap as any).displayVersion)
             if ((snap as any).logoDataUrl != null) setLogoDataUrl((snap as any).logoDataUrl as string | null)
 			// Skybox is fixed to skybox_random in the editor UI
-			if (typeof snap.players === 'number') setPlayers(Math.max(2, Math.min(10, snap.players)))
+            if (typeof snap.players === 'number') setPlayers(Math.max(2, Math.min(10, snap.players)))
+            if (typeof (snap as any).teamCount === 'number') setTeamCount(Math.max(0, Math.min(10, Math.floor((snap as any).teamCount))))
 			if (snap.grid) {
 				setShowGrid(!!snap.grid.showGrid)
 				setSnapToGrid(!!snap.grid.snapToGrid)
@@ -229,6 +255,7 @@ export default function App() {
 			scenarioName,
 			skybox,
 			players,
+            teamCount: teamCount ?? undefined,
 	            modCompatVersion: 2,
             author,
             shortDescription,
@@ -241,7 +268,7 @@ export default function App() {
 			try { localStorage.setItem(STORAGE_KEYS.project, JSON.stringify(snap)) } catch {}
 		}, 300)
 		return () => clearTimeout(t)
-    }, [nodes, lanes, scenarioName, skybox, players, showGrid, snapToGrid, gridSize, author, shortDescription, displayName, displayVersion, logoDataUrl])
+    }, [nodes, lanes, scenarioName, skybox, players, teamCount, showGrid, snapToGrid, gridSize, author, shortDescription, displayName, displayVersion, logoDataUrl])
 
 		// Compute simple warnings
 		useEffect(() => {
@@ -714,7 +741,7 @@ const exportZip = async () => {
         setAjvError('Unrecognized body types present: ' + unknownIds.join(', ') + '\nPlease change them to supported options before export.')
         return
     }
-    const scenario = buildScenarioJSON(nodes, lanes, skybox)
+        const scenario = buildScenarioJSON(nodes, lanes, skybox)
     const sanitized = sanitizeName(scenarioName)
     // Preserve case and underscores for file base and uniforms entry
     const scenarioFileBase = sanitized
@@ -735,6 +762,10 @@ const exportZip = async () => {
 			}
 		}
         // External/official schema validation removed
+        if (teamCount == null) {
+            setAjvError('Please select a Recommended Team Count in the Scenario panel before export.')
+            return
+        }
 		if (warnings.length > 0) {
 			setAjvError('Fix warnings before export:\n' + warnings.join('\n'))
 			return
@@ -772,7 +803,7 @@ const exportZip = async () => {
         // Build scenario .scenario zip (must contain scenario_info.json, galaxy_chart.json, galaxy_chart_fillings.json, picture.png)
         const scenarioZip = new JSZip()
         // Build scenario_info using localization keys
-    const info = buildScenarioInfoJSON(nodes, lanes, players, scenarioFileBase)
+    const info = buildScenarioInfoJSON(nodes, lanes, players, teamCount, scenarioFileBase)
         scenarioZip.file('scenario_info.json', JSON.stringify(info, null, 2))
         scenarioZip.file('galaxy_chart.json', JSON.stringify(scenario, null, 2))
         scenarioZip.file('galaxy_chart_fillings.json', JSON.stringify({ version: 1 }, null, 2))
@@ -937,11 +968,12 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 	}
 
 	const onShare = async () => {
-		const payload = {
+        const payload = {
 			nodes,
 			lanes,
 			skybox,
 			players,
+            teamCount,
 			scenarioName,
 			modCompatVersion,
 			author,
@@ -974,13 +1006,14 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 		}
 		// Reset in-memory state
 		nextNodeId.current = 2
-		nextLaneId.current = 1
+        nextLaneId.current = 1
 		setNodes([{ id: 1, filling_name: 'star', position: { x: 360, y: 280 }, initial_category: 'star' }])
 		setLanes([])
 		setSelectedId(1)
 		setScenarioName('MyScenario')
 		setSkybox('skybox_random')
         setPlayers(2)
+        setTeamCount(null)
         setModCompatVersion(2)
         setAuthor('')
         setShortDescription('')
@@ -1064,8 +1097,24 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 						<input className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={shortDescription} onChange={e => setShortDescription(e.target.value)} />
 						<div className="block text-xs opacity-80 mt-2">Skybox</div>
 						<div className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded opacity-60 select-none">skybox_random</div>
-						<label className="block text-xs opacity-80 mt-2">Players</label>
+                        <label className="block text-xs opacity-80 mt-2">Players</label>
 						<input type="number" min={2} max={10} className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={players} onChange={e => setPlayers(Math.max(2, Math.min(10, Number(e.target.value) || 2)))} />
+                        <label className="block text-xs opacity-80 mt-2">Recommended Team Count</label>
+						<select
+							required
+							className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded"
+							value={teamCount == null ? '' : teamCount}
+							onChange={e => {
+								const v = e.target.value
+								setTeamCount(v === '' ? null : Math.max(0, Math.min(10, Math.floor(Number(v) || 0))))
+							}}
+							disabled={!(players >= 2)}
+						>
+							<option value="">Please select…</option>
+							{teamCountOptions.map(opt => (
+								<option key={opt.value} value={opt.value}>{opt.label}</option>
+							))}
+						</select>
 						<label className="block text-xs opacity-80 mt-2">Compatibility Version</label>
 						<div className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded opacity-60 select-none">2</div>
                     
@@ -1737,7 +1786,7 @@ function buildScenarioUniformsObject(scenarioName: string) {
     }
 }
 
-function buildScenarioInfoJSON(nodes: NodeItem[], lanes: PhaseLane[], players: number, scenarioKey: string) {
+function buildScenarioInfoJSON(nodes: NodeItem[], lanes: PhaseLane[], players: number, teamCount: number, scenarioKey: string) {
     // Determine flags
     const hasWormholes = nodes.some(n => toGameFillingName(n.filling_name) === 'wormhole_fixture') || lanes.some(l => l.type === 'wormhole')
     const nonStars = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category !== 'star')
@@ -1754,6 +1803,7 @@ function buildScenarioInfoJSON(nodes: NodeItem[], lanes: PhaseLane[], players: n
         description: descText,
         desired_player_slots_configuration: {
             player_count: Math.max(2, Math.min(10, Math.floor(players) || 2)),
+            team_count: Math.max(0, Math.min(10, Math.floor(teamCount) || 0)),
         },
         can_gravity_wells_move: false,
         are_player_slots_randomized: false,
