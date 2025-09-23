@@ -916,53 +916,68 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 				ctx.fillStyle = '#000000'
                 ctx.fillRect(0, 0, canvas.width, canvas.height)
                 ctx.drawImage(baseImg, 0, 0, baseImg.width, baseImg.height, offsetX, offsetY, drawW, drawH)
-				// Determine player home planets (first body per player index)
-				const homeByPlayer = new Map<number, { x: number; y: number }>()
-				nodes.forEach(n => {
+					// Determine player home planets (first body per player index)
+					const homeByPlayer = new Map<number, { x: number; y: number; r: number }>()
+					nodes.forEach(n => {
 					const cat = bodyTypeById.get(n.filling_name)?.category
 					const p = n.ownership?.player_index
 					if (cat === 'star') return
-					if (typeof p === 'number' && p >= 0 && !homeByPlayer.has(p)) {
-						homeByPlayer.set(p, { x: n.position.x, y: n.position.y })
+						if (typeof p === 'number' && p >= 0 && !homeByPlayer.has(p)) {
+							const r = getBodyRadiusById(n.filling_name)
+							homeByPlayer.set(p, { x: n.position.x, y: n.position.y, r })
 					}
 				})
 				// Draw numbered badges near homes (offset by crop) with high-contrast styling
-					const stageToCanvasScale = scale * pixelRatio
-					const badgeRadius = Math.max(10, Math.round(14 * stageToCanvasScale))
-					const badgeOffsetX = Math.round(14 * stageToCanvasScale)
-					const badgeOffsetY = Math.round(-14 * stageToCanvasScale)
+					// Compose the full world->canvas scale: crop fit on stage, raster pixelRatio, then draw scale
+					const composedScale = fitScale * pixelRatio * scale
+					// Account for stage centering margins when mapping world coords to the base image
+					const leftMargin = Math.floor((stageW - cropW * fitScale) / 2)
+					const topMargin = Math.floor((stageH - cropH * fitScale) / 2)
+					const worldToCanvas = (wx: number, wy: number) => {
+						const imgX = ((wx - cropX) * fitScale + leftMargin) * pixelRatio
+						const imgY = ((wy - cropY) * fitScale + topMargin) * pixelRatio
+						const canvasX = Math.round(imgX * scale) + offsetX
+						const canvasY = Math.round(imgY * scale) + offsetY
+						return { x: canvasX, y: canvasY }
+					}
+					const baseBadgeRadius = Math.max(10, Math.round(14 * composedScale))
 					ctx.textAlign = 'center'
 					ctx.textBaseline = 'middle'
-					ctx.font = `${Math.max(10, Math.round(14 * stageToCanvasScale))}px system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif`
+					ctx.font = `${Math.max(11, Math.round(16 * composedScale))}px system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif`
 					for (const [playerIdx, pos] of homeByPlayer) {
-						const x = Math.round((pos.x - cropX) * stageToCanvasScale) + offsetX + badgeOffsetX
-						const y = Math.round((pos.y - cropY) * stageToCanvasScale) + offsetY + badgeOffsetY
+						const { x: baseX, y: baseY } = worldToCanvas(pos.x, pos.y)
+						// Offset by planet radius (in world units) scaled into canvas space, plus a small margin
+						const offsetDiag = Math.max(baseBadgeRadius, Math.round((pos.r + 6) * composedScale))
+						const x = baseX + offsetDiag
+						const y = baseY - offsetDiag
 						ctx.beginPath()
-						ctx.arc(x, y, badgeRadius, 0, Math.PI * 2)
-						ctx.fillStyle = '#ffffff'
-						ctx.fill()
-						ctx.lineWidth = Math.max(1, Math.round(2 * stageToCanvasScale))
-						ctx.strokeStyle = '#111827'
-						ctx.stroke()
+						ctx.arc(x, y, baseBadgeRadius, 0, Math.PI * 2)
 						ctx.fillStyle = '#111827'
+						ctx.fill()
+						ctx.lineWidth = Math.max(2, Math.round(3 * composedScale))
+						ctx.strokeStyle = '#ffffff'
+						ctx.stroke()
+						ctx.fillStyle = '#ffffff'
 						ctx.fillText(String(playerIdx), x, y)
 					}
 					// Draw NPC badges on snapshot
 					const npcPlanets = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category !== 'star' && !!n.ownership?.npc_filling_name)
 					for (const n of npcPlanets) {
-						const x = Math.round((n.position.x - cropX) * stageToCanvasScale) + offsetX - Math.round(14 * stageToCanvasScale)
-						const y = Math.round((n.position.y - cropY) * stageToCanvasScale) + offsetY - Math.round(14 * stageToCanvasScale)
+						const { x: baseX, y: baseY } = worldToCanvas(n.position.x, n.position.y)
+						const npcOffset = Math.max(baseBadgeRadius, Math.round(12 * composedScale))
+						const x = baseX - npcOffset
+						const y = baseY - npcOffset
 						ctx.beginPath()
-						ctx.arc(x, y, Math.max(8, Math.round(10 * stageToCanvasScale)), 0, Math.PI * 2)
+						ctx.arc(x, y, Math.max(9, Math.round(12 * composedScale)), 0, Math.PI * 2)
 						ctx.fillStyle = '#f59e0b'
 						ctx.fill()
-						ctx.lineWidth = Math.max(1, Math.round(2 * stageToCanvasScale))
+						ctx.lineWidth = Math.max(2, Math.round(3 * composedScale))
 						ctx.strokeStyle = '#111827'
 						ctx.stroke()
 						ctx.fillStyle = '#111827'
 						ctx.textAlign = 'center'
 						ctx.textBaseline = 'middle'
-						ctx.font = `${Math.max(9, Math.round(12 * stageToCanvasScale))}px system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif`
+						ctx.font = `${Math.max(10, Math.round(13 * composedScale))}px system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif`
 						ctx.fillText('N', x, y)
 					}
 				canvas.toBlob((blob) => resolve(blob), 'image/png')
@@ -1198,7 +1213,14 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
                                         value={selectedNode.chance_of_loot ?? ''}
                                         onChange={e => {
                                             const v = e.target.value
-                                            setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, chance_of_loot: Number(v) } : n))
+                                            const chance = Number(v)
+                                            setNodes(prev => prev.map(n => {
+                                                if (n.id !== selectedNode.id) return n
+                                                // When chance is 0%, force loot_level to 0
+                                                if (chance === 0) return { ...n, chance_of_loot: 0, loot_level: 0 }
+                                                // For non-zero chance, clear loot_level so the UI shows "Select Loot Level…"
+                                                return { ...n, chance_of_loot: chance, loot_level: undefined }
+                                            }))
                                         }}
                                     >
                                         <option value="" disabled>Select Chance of Loot…</option>
@@ -1214,10 +1236,16 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
                                     <select
                                         className="w-full mt-1 px-2 py-1 bg-neutral-900 border border-white/10 rounded"
                                         value={(nodes.find(n => n.id === selectedNode.id) as any)?.loot_level ?? ''}
-                                        disabled={typeof selectedNode.chance_of_loot !== 'number'}
+                                        disabled={typeof selectedNode.chance_of_loot !== 'number' || selectedNode.chance_of_loot === 0}
                                         onChange={e => {
                                             const v = e.target.value
-                                            setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, loot_level: Number(v) } : n))
+                                            const lvl = Number(v)
+                                            setNodes(prev => prev.map(n => {
+                                                if (n.id !== selectedNode.id) return n
+                                                // If loot level 0 is selected, force chance to 0%
+                                                if (lvl === 0) return { ...n, loot_level: 0, chance_of_loot: 0 }
+                                                return { ...n, loot_level: lvl }
+                                            }))
                                         }}
                                     >
                                         <option value="" disabled>Select Loot Level…</option>
@@ -1797,9 +1825,9 @@ function buildScenarioInfoJSON(nodes: NodeItem[], lanes: PhaseLane[], players: n
     const nonStars = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category !== 'star')
     const planetCount = nonStars.length
     const starCount = nodes.length - nonStars.length
-    // Use colon-prefixed keys, matching working examples
-    const nameText = `:${scenarioKey.replace(/_/g, ' ')}`
-    const descText = `:${scenarioKey.replace(/_/g, ' ')}_desc`
+    // Use colon-prefixed keys that exactly match our localization keys (underscores)
+    const nameText = `:${scenarioKey}`
+    const descText = `:${scenarioKey}_desc`
     const hasNpcs = nodes.some(n => !!n.ownership?.npc_filling_name)
 
     return {
