@@ -443,8 +443,14 @@ useEffect(() => {
 						w.push(`Node ${n.id} is player-owned and cannot have an artifact`)
 					}
 				}
-				// If has_artifact is true, an artifact_name must be provided
+				// If has_artifact is true, an artifact_name must be provided, and only on eligible categories
 				if (n.has_artifact) {
+					const cat = bodyTypeById.get(n.filling_name)?.category
+					const isPirateBase = n.filling_name === 'planet_pirate_base'
+					const allowedCategory = (cat === 'planet' || cat === 'moon' || cat === 'asteroid' || isPirateBase)
+					if (!allowedCategory) {
+						w.push(`Node ${n.id} type does not allow artifacts`)
+					}
 					if (!n.artifact_name || !ARTIFACT_OPTIONS.includes(n.artifact_name as any)) {
 						w.push(`Node ${n.id} has_artifact=true requires a valid Artifact Name`)
 					}
@@ -1306,7 +1312,9 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 										const isStar = cat === 'star'
 										const isPlayerOwned = selectedNode.ownership?.player_index != null
 										const isNpcOwned = !!selectedNode.ownership?.npc_filling_type
-										const eligible = !isStar && !isPlayerOwned && !isNpcOwned
+										const isPirateBase = selectedNode.filling_name === 'planet_pirate_base'
+										const isAllowedCategory = (cat === 'planet' || cat === 'moon' || cat === 'asteroid' || isPirateBase)
+										const eligible = isAllowedCategory && !isPlayerOwned && !isNpcOwned && !isStar
 										return (
 											<div className="grid grid-cols-2 gap-2 mt-1">
 												<label className="block text-xs opacity-80">Has Artifact
@@ -1343,7 +1351,9 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 													</select>
 												</label>
 												{!eligible && (
-													<div className="col-span-2 text-xs opacity-60">Artifacts are only allowed on unowned, colonizable bodies.</div>
+													<div className="col-span-2 text-xs opacity-60">
+														{isPlayerOwned ? 'Artifacts are not applicable for player-owned planets.' : isNpcOwned ? 'Artifacts are not applicable for NPC-owned planets.' : isStar ? 'Artifacts are not applicable for stars.' : 'Artifacts are only allowed on unowned, colonizable bodies.'}
+													</div>
 												)}
 											</div>
 										)
