@@ -1956,9 +1956,9 @@ function buildScenarioInfoJSON(nodes: NodeItem[], lanes: PhaseLane[], players: n
     const nonStars = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category !== 'star')
     const planetCount = nonStars.length
     const starCount = nodes.length - nonStars.length
-    // Use colon-prefixed keys that exactly match our localization keys (underscores)
-    const nameText = `:${scenarioKey}`
-    const descText = `:${scenarioKey}_desc`
+    // Use localization keys that exactly match our exported localized_text entries (no colon prefix)
+    const nameText = `${scenarioKey}`
+    const descText = `${scenarioKey}_desc`
     const hasNpcs = nodes.some(n => !!n.ownership?.npc_filling_name)
 
     return {
