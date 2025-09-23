@@ -1394,13 +1394,13 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 											})
 											let assign: number | null = null
 						for (let i = 0; i < players; i++) { if (!used.has(i)) { assign = i; break } }
-											if (assign == null) { alert('All player slots are already assigned to other planets.'); return }
-											setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { player_index: assign! } } : n))
+									if (assign == null) { alert('All player slots are already assigned to other planets.'); return }
+									setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { player_index: assign! }, chance_of_loot: 0, loot_level: 0 } : n))
 											return
 										}
-										if (mode === 'none') { setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: undefined } : n)); return }
+                                        if (mode === 'none') { setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: undefined, chance_of_loot: undefined, loot_level: undefined } : n)); return }
 										// npc
-										setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { npc_filling_type: 'militia', npc_filling_name: 'default' } } : n))
+                                        setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { npc_filling_type: 'militia', npc_filling_name: 'default' }, chance_of_loot: undefined, loot_level: undefined } : n))
 									}}
 								>
 									<option value="none">Unowned</option>
