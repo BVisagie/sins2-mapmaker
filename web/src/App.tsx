@@ -826,7 +826,7 @@ const exportZip = async () => {
 		setAjvError(null)
 
     const zip = new JSZip()
-        const root = `${scenarioFileBase}/`
+        const root = ''
 
         // Mod metadata and uniforms
         // Require in-game Display Name
@@ -883,7 +883,7 @@ const exportZip = async () => {
 		const url = URL.createObjectURL(blob)
 		const a = document.createElement('a')
 		a.href = url
-        const modZipBase = `${scenarioFileBase}_v${(displayVersion && displayVersion.trim().length > 0) ? displayVersion.trim() : '1.0.0'}`
+        const modZipBase = `${scenarioFileBase}`
         a.download = `${modZipBase}.zip`
 		a.click()
 		URL.revokeObjectURL(url)
