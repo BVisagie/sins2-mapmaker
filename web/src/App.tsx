@@ -443,6 +443,12 @@ useEffect(() => {
 						w.push(`Node ${n.id} is player-owned and cannot have an artifact`)
 					}
 				}
+				// NPC-owned cannot have artifacts
+				if (n.ownership?.npc_filling_type) {
+					if (n.has_artifact) {
+						w.push(`Node ${n.id} is NPC-owned and cannot have an artifact`)
+					}
+				}
 				// If has_artifact is true, an artifact_name must be provided, and only on eligible categories
 				if (n.has_artifact) {
 					const cat = bodyTypeById.get(n.filling_name)?.category
@@ -1324,6 +1330,11 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 												<div className="text-xs opacity-60">Artifacts are not applicable for player-owned planets.</div>
 											)
 										}
+									if (isNpcOwned) {
+										return (
+											<div className="text-xs opacity-60">Artifacts are not applicable for NPC-owned planets.</div>
+										)
+									}
 										if (isStar || !isAllowedCategory) {
 											return (
 												<div className="text-xs opacity-60">Artifacts are not applicable for player-owned, star or uncolonizable bodies.</div>
