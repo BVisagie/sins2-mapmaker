@@ -1250,7 +1250,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 								<div className="text-xs opacity-75">id: {selectedNode.id}</div>
 								<div className="text-sm">Loot</div>
 								<div className="grid grid-cols-2 gap-2 mt-1">
-									{selectedNode.ownership?.player_index == null && (<>
+									{selectedNode.ownership?.player_index == null && !selectedNode.ownership?.npc_filling_type && (<>
 									<label className="block text-xs opacity-80">Chance of Loot
                                     <select
                                         className="w-full mt-1 px-2 py-1 bg-neutral-900 border border-white/10 rounded"
@@ -1302,6 +1302,9 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 									</>)}
 									{selectedNode.ownership?.player_index != null && (
 										<div className="col-span-2 text-xs opacity-60">Loot is not applicable for player-owned planets.</div>
+									)}
+									{selectedNode.ownership?.player_index == null && !!selectedNode.ownership?.npc_filling_type && (
+										<div className="col-span-2 text-xs opacity-60">Loot is not applicable for NPC-owned planets.</div>
 									)}
                             </div>
 
