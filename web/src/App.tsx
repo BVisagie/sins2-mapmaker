@@ -1306,7 +1306,6 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
                             </div>
 
 								{/* Artifacts */}
-								{bodyTypeById.get(selectedNode.filling_name)?.category !== 'star' && (
 								<div className="mt-2">
 									<div className="text-sm">Artifact</div>
 									{(() => {
@@ -1320,6 +1319,11 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 										if (isPlayerOwned) {
 											return (
 												<div className="text-xs opacity-60">Artifacts are not applicable for player-owned planets.</div>
+											)
+										}
+										if (isStar || !isAllowedCategory) {
+											return (
+												<div className="text-xs opacity-60">Artifacts are not applicable for player-owned, star or uncolonizable bodies.</div>
 											)
 										}
 										return (
@@ -1366,7 +1370,6 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 										)
 									})()}
 								</div>
-								)}
 								{/* Artifact fields removed */}
 								{bodyTypeById.get(selectedNode.filling_name)?.category !== 'star' && (
 									<div className="mt-1">
