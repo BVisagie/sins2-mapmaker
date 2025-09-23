@@ -1315,8 +1315,13 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 										const isPirateBase = selectedNode.filling_name === 'planet_pirate_base'
 										const isAllowedCategory = (cat === 'planet' || cat === 'moon' || cat === 'asteroid' || isPirateBase)
 										const eligible = isAllowedCategory && !isPlayerOwned && !isNpcOwned && !isStar
+										if (isPlayerOwned) {
+											return (
+												<div className="text-xs opacity-60">Artifacts are not applicable for player-owned planets.</div>
+											)
+										}
 										return (
-											<div className="grid grid-cols-2 gap-2 mt-1">
+										<div className="grid grid-cols-2 gap-2 mt-1">
 												<label className="block text-xs opacity-80">Has Artifact
 													<select
 														className="w-full mt-1 px-2 py-1 bg-neutral-900 border border-white/10 rounded"
@@ -1352,7 +1357,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 												</label>
 												{!eligible && (
 													<div className="col-span-2 text-xs opacity-60">
-														{isPlayerOwned ? 'Artifacts are not applicable for player-owned planets.' : isNpcOwned ? 'Artifacts are not applicable for NPC-owned planets.' : isStar ? 'Artifacts are not applicable for stars.' : 'Artifacts are only allowed on unowned, colonizable bodies.'}
+														{isNpcOwned ? 'Artifacts are not applicable for NPC-owned planets.' : isStar ? 'Artifacts are not applicable for stars.' : 'Artifacts are only allowed on unowned, colonizable bodies.'}
 													</div>
 												)}
 											</div>
