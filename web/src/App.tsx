@@ -20,7 +20,6 @@ const STORAGE_KEYS = {
 interface Point { x: number; y: number }
 interface NodeOwnership {
 	player_index?: number
-		team_index?: number
 	npc_filling_type?: 'militia' | 'guardian' | 'enemy_faction' | 'friendly_faction'
 	npc_filling_name?: string
 	are_secondary_fixtures_owned?: boolean
@@ -302,13 +301,7 @@ export default function App() {
 		if (players < 2) {
 			w.push('Players must be at least 2')
 		}
-		// Team index bounds validation (0..9)
-		for (const n of nodes) {
-			const t = n.ownership?.team_index
-			if (typeof t === 'number' && (t < 0 || t > 9)) {
-				w.push(`Node ${n.id} team_index out of range 0..9`)
-			}
-		}
+
 		// Star/body constraints
 		const starIds = nodes.filter(n => bodyTypeById.get(n.filling_name)?.category === 'star').map(n => n.id)
 		if (starIds.length > 15) w.push(`Too many stars: ${starIds.length} (max 15)`) 
@@ -1094,10 +1087,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
                         <div className="block text-xs opacity-80 mt-2">Snapshot Size: 800 x 775</div>
 						</div>
 
-						<div className="space-y-2 bg-neutral-900/30 border border-white/10 rounded p-3">
-							<div className="font-medium text-sm">Solar System</div>
-							<div className="text-xs opacity-75">A scenario represents a single solar system. You can add multiple stars and their planets below.</div>
-						</div>
+
 
 						<div className="space-y-2 bg-neutral-900/30 border border-white/10 rounded p-3">
 							<div className="font-medium text-sm">Tools</div>
@@ -1141,14 +1131,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 							</div>
 						</div>
 
-						<div className="space-y-2 bg-neutral-900/30 border border-white/10 rounded p-3">
-							<div className="font-medium text-sm">Grid & Snap</div>
-							<div className="flex items-center gap-3 flex-wrap mt-1">
-								<label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={showGrid} onChange={e => setShowGrid(e.target.checked)} /> Show Grid</label>
-								<label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={snapToGrid} onChange={e => setSnapToGrid(e.target.checked)} /> Snap to Grid</label>
-								<label className="flex items-center gap-2 text-sm">Size <input type="number" min={8} max={200} value={gridSize} onChange={e => setGridSize(Math.max(8, Math.min(200, Number(e.target.value) || 40)))} className="w-20 px-2 py-1 bg-neutral-900 border border-white/10 rounded" /></label>
-							</div>
-						</div>
+
 
 						{selectedNode && (
 							<div className="space-y-2 bg-neutral-900/30 border border-white/10 rounded p-3">
@@ -1359,18 +1342,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 									</div>
 								)}
 
-					{selectedNode.ownership?.player_index != null && (
-						<div className="space-y-1 mt-2">
-							<label className="block text-sm">Team Index (optional, 0..9)</label>
-							<input type="number" min={0} max={9} className="w-full px-2 py-1 bg-neutral-900 border border-white/10 rounded" value={selectedNode.ownership?.team_index ?? ''}
-								onChange={e => setNodes(prev => {
-								const v = e.target.value
-								const newTeam = v === '' ? undefined : Math.max(0, Math.min(9, Math.floor(Number(v) || 0)))
-								return prev.map(n => n.id === selectedNode.id ? { ...n, ownership: { ...n.ownership, team_index: newTeam as any } } : n)
-							})}
-							/>
-						</div>
-					)}
+
 
 								{selectedNode.ownership?.npc_filling_type && (
 									<div className="space-y-1 mt-2">
@@ -1403,8 +1375,18 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 								)}
 							</div>
 						)}
+
 							</div>
 						)}
+
+						<div className="space-y-2 bg-neutral-900/30 border border-white/10 rounded p-3">
+							<div className="font-medium text-sm">Grid & Snap</div>
+							<div className="flex items-center gap-3 flex-wrap mt-1">
+								<label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={showGrid} onChange={e => setShowGrid(e.target.checked)} /> Show Grid</label>
+								<label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={snapToGrid} onChange={e => setSnapToGrid(e.target.checked)} /> Snap to Grid</label>
+								<label className="flex items-center gap-2 text-sm">Size <input type="number" min={8} max={200} value={gridSize} onChange={e => setGridSize(Math.max(8, Math.min(200, Number(e.target.value) || 40)))} className="w-20 px-2 py-1 bg-neutral-900 border border-white/10 rounded" /></label>
+							</div>
+						</div>
 					</div>
 				</div>
 		<div ref={canvasRef} className="flex-1 relative"
@@ -1685,8 +1667,17 @@ function buildScenarioJSON(nodes: NodeItem[], lanes: PhaseLane[], skybox: string
             return toGameFillingName(n.filling_name)
         })()
         // If the editor body is pirate base, ensure we export pirate ownership when none is provided
-        const exportOwnership = ((): NodeOwnership | undefined => {
-            if (n.ownership) return n.ownership
+		const exportOwnership = ((): NodeOwnership | undefined => {
+			if (n.ownership) {
+				// Clean ownership to only allowed fields
+				const { player_index, npc_filling_type, npc_filling_name, are_secondary_fixtures_owned } = n.ownership
+				const cleaned: NodeOwnership = {}
+				if (typeof player_index === 'number') cleaned.player_index = player_index
+				if (npc_filling_type) cleaned.npc_filling_type = npc_filling_type
+				if (typeof npc_filling_name === 'string') cleaned.npc_filling_name = npc_filling_name
+				if (typeof are_secondary_fixtures_owned === 'boolean') cleaned.are_secondary_fixtures_owned = are_secondary_fixtures_owned
+				return cleaned
+			}
             if (n.filling_name === 'planet_pirate_base') return { npc_filling_name: 'pirate' }
             return undefined
         })()
@@ -1756,13 +1747,6 @@ function buildScenarioInfoJSON(nodes: NodeItem[], lanes: PhaseLane[], players: n
     const nameText = `:${scenarioKey.replace(/_/g, ' ')}`
     const descText = `:${scenarioKey.replace(/_/g, ' ')}_desc`
     const hasNpcs = nodes.some(n => !!n.ownership?.npc_filling_name)
-    // Compute team count if team_index values exist
-    const teamIndexes = new Set<number>()
-    for (const n of nonStars) {
-        const t = n.ownership?.team_index
-        if (typeof t === 'number' && t >= 0) teamIndexes.add(t)
-    }
-    const teamCount = teamIndexes.size > 0 ? teamIndexes.size : 0
 
     return {
         version: 1,
@@ -1770,7 +1754,6 @@ function buildScenarioInfoJSON(nodes: NodeItem[], lanes: PhaseLane[], players: n
         description: descText,
         desired_player_slots_configuration: {
             player_count: Math.max(2, Math.min(10, Math.floor(players) || 2)),
-            team_count: teamCount,
         },
         can_gravity_wells_move: false,
         are_player_slots_randomized: false,
