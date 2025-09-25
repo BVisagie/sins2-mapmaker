@@ -11,6 +11,8 @@ const WORLD_WIDTH = 2400
 const WORLD_HEIGHT = 2325
 // Only these body types may be owned by players
 const PLAYER_OWNABLE_TYPES = new Set<string>(['planet_terran', 'planet_desert', 'planet_ferrous', 'planet_city'])
+// Planets that are not colonizable and therefore ineligible for artifacts
+const NON_COLONIZABLE_PLANET_IDS = new Set<string>(['planet_brown_dwarf', 'planet_uncolonizable'])
 const STORAGE_KEYS = {
 	version: 'sins2.appVersion',
 	project: 'sins2.project',
@@ -456,10 +458,11 @@ useEffect(() => {
 					}
 				}
 				// If has_artifact is true, an artifact_name must be provided, and only on eligible categories
-				if (n.has_artifact) {
+									if (n.has_artifact) {
 					const cat = category
 					const isPirateBase = n.filling_name === 'planet_pirate_base'
-					const allowedCategory = (cat === 'planet' || cat === 'moon' || cat === 'asteroid' || isPirateBase)
+										const isNonColonizablePlanet = NON_COLONIZABLE_PLANET_IDS.has(n.filling_name)
+										const allowedCategory = (cat === 'planet' || cat === 'moon' || cat === 'asteroid' || isPirateBase) && !isNonColonizablePlanet
 					if (!allowedCategory) {
 						w.push(`Node ${n.id} type does not allow artifacts`)
 					}
@@ -1323,14 +1326,15 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 								{/* Artifacts */}
 								<div className="mt-2">
 									<div className="text-sm">Artifact</div>
-									{(() => {
+										{(() => {
 										const cat = bodyTypeById.get(selectedNode.filling_name)?.category
 										const isStar = cat === 'star'
 										const isPlayerOwned = selectedNode.ownership?.player_index != null
 										const isNpcOwned = !!selectedNode.ownership?.npc_filling_type
 										const isPirateBase = selectedNode.filling_name === 'planet_pirate_base'
-										const isAllowedCategory = (cat === 'planet' || cat === 'moon' || cat === 'asteroid' || isPirateBase)
-										const eligible = isAllowedCategory && !isPlayerOwned && !isNpcOwned && !isStar
+											const isAllowedCategory = (cat === 'planet' || cat === 'moon' || cat === 'asteroid' || isPirateBase)
+											const isNonColonizablePlanet = selectedNode.filling_name && NON_COLONIZABLE_PLANET_IDS.has(selectedNode.filling_name)
+											const eligible = isAllowedCategory && !isPlayerOwned && !isNpcOwned && !isStar && !isNonColonizablePlanet
 										if (isPlayerOwned) {
 											return (
 												<div className="text-xs opacity-60">Artifacts are not applicable for player-owned planets.</div>
@@ -1341,9 +1345,9 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 											<div className="text-xs opacity-60">Artifacts are not applicable for NPC-owned planets.</div>
 										)
 									}
-										if (isStar || !isAllowedCategory) {
+											if (isStar || !isAllowedCategory || isNonColonizablePlanet) {
 											return (
-												<div className="text-xs opacity-60">Artifacts are not applicable for player-owned, star or uncolonizable bodies.</div>
+													<div className="text-xs opacity-60">Artifacts are not applicable for player-owned, star or uncolonizable bodies.</div>
 											)
 										}
 										return (
@@ -1357,7 +1361,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 															const v = e.target.value === 'true'
 															setNodes(prev => prev.map(n => {
 																if (n.id !== selectedNode.id) return n
-																return v ? { ...n, has_artifact: true } : { ...n, has_artifact: false, artifact_name: undefined }
+												return v ? { ...n, has_artifact: true } : { ...n, has_artifact: false, artifact_name: undefined }
 															}))
 														}}
 													>
@@ -1402,7 +1406,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 												</label>
 												{!eligible && (
 													<div className="col-span-2 text-xs opacity-60">
-														{isNpcOwned ? 'Artifacts are not applicable for NPC-owned planets.' : isStar ? 'Artifacts are not applicable for stars.' : 'Artifacts are only allowed on unowned, colonizable bodies.'}
+										{isNpcOwned ? 'Artifacts are not applicable for NPC-owned planets.' : isStar ? 'Artifacts are not applicable for stars.' : isNonColonizablePlanet ? 'Artifacts are not applicable for uncolonizable bodies.' : 'Artifacts are only allowed on unowned, colonizable bodies.'}
 													</div>
 												)}
 											</div>
@@ -1487,7 +1491,15 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 									alert('Body limit per star reached (100).')
 									return
 								}
-										setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, filling_name: newTypeId, parent_star_id: parentStarId ?? undefined } : n))
+												setNodes(prev => prev.map(n => {
+													if (n.id !== selectedNode.id) return n
+													const next: NodeItem = { ...n, filling_name: newTypeId, parent_star_id: parentStarId ?? undefined }
+													if (NON_COLONIZABLE_PLANET_IDS.has(newTypeId)) {
+														next.has_artifact = false
+														next.artifact_name = undefined
+													}
+													return next
+												}))
 							}}
 								>
 								{selectedNode.initial_category === 'star' ? (
