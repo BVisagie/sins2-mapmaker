@@ -1366,7 +1366,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 													</select>
 												</label>
 												<label className="block text-xs opacity-80">Artifact Name
-													<select
+									<select
 														className="w-full mt-1 px-2 py-1 bg-neutral-900 border border-white/10 rounded"
 														value={selectedNode.artifact_name ?? ''}
 														disabled={!eligible || !selectedNode.has_artifact}
@@ -1375,10 +1375,29 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 															setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, artifact_name: v || undefined } : n))
 														}}
 													>
-														<option value="" disabled>Select Artifact…</option>
-														{ARTIFACT_OPTIONS.map(a => (
+										<option value="" disabled>Select Artifact…</option>
+										{(() => {
+											const planetArtifacts = [...ARTIFACT_OPTIONS]
+												.filter(a => a.endsWith('_planet_artifact'))
+												.sort((a, b) => humanizeGameFillingName(a).localeCompare(humanizeGameFillingName(b)))
+											const shipArtifacts = [...ARTIFACT_OPTIONS]
+												.filter(a => a.endsWith('_ship_artifact'))
+												.sort((a, b) => humanizeGameFillingName(a).localeCompare(humanizeGameFillingName(b)))
+											return (
+												<>
+													<optgroup label="Planet Artifacts">
+														{planetArtifacts.map(a => (
 															<option key={a} value={a}>{humanizeGameFillingName(a)}</option>
 														))}
+													</optgroup>
+													<optgroup label="Ship Artifacts">
+														{shipArtifacts.map(a => (
+															<option key={a} value={a}>{humanizeGameFillingName(a)}</option>
+														))}
+													</optgroup>
+												</>
+											)
+										})()}
 													</select>
 												</label>
 												{!eligible && (
@@ -1762,7 +1781,8 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 							<div>
 								<div className="text-xs font-medium opacity-90">Getting Started</div>
 								<ul className="text-xs opacity-80 list-disc pl-5 space-y-1 mt-1">
-									<li>Use <span className="opacity-100">Add Body</span> for a planet, or <span className="opacity-100">Add Star</span>.</li>
+									<li>Use <span className="opacity-100">Add Star</span> to create a star, then <span className="opacity-100">Add Body</span> for planets.</li>
+									<li>Select a <span className="opacity-100">Parent Star</span> in Tools before using <span className="opacity-100">Add Body</span>.</li>
 									<li>Select a node to change its <span className="opacity-100">Body Type</span>.</li>
 									<li>Drag nodes to reposition; enable <span className="opacity-100">Snap to Grid</span> for tidy layouts.</li>
 									<li>Navigate: press the middle mouse button and drag (or hold Space + drag).</li>
@@ -1773,7 +1793,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 						<ul className="text-xs opacity-80 list-disc pl-5 space-y-1 mt-1">
 									<li>Chance of Loot uses presets (0/10/25/50/75/100%) and exports 0..1.</li>
 									<li>Loot Level options: 0 — None, 1 — Small, 2 — Large.</li>
-									<li>Artifacts can be toggled and named to match in-game artifacts.</li>
+								<li>Artifacts are grouped into <span className="opacity-100">Planet</span> and <span className="opacity-100">Ship</span> sections, and are only allowed on unowned, colonizable bodies (or Pirate Base) — not on stars, player-owned, or NPC-owned planets.</li>
 									<li>Body Type tooltips show editor id → game filling mapping.</li>
 						</ul>
 					</div>
@@ -1789,6 +1809,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 									<li>Normal: white line</li>
 									<li>Star: amber line</li>
 									<li>Wormhole: dashed blue line</li>
+									<li>Rules: planets link to a single star; star lanes must connect two stars; wormhole lanes must connect two wormhole fixtures.</li>
 								</ul>
 							</div>
 							<div>
@@ -1796,6 +1817,8 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 								<ul className="text-xs opacity-80 list-disc pl-5 space-y-1 mt-1">
 									<li>Set a node to <span className="opacity-100">Player</span> (choose index) or <span className="opacity-100">NPC</span> (type and name).</li>
 									<li><span className="opacity-100">Players</span> in Scenario controls the allowed player index range.</li>
+								<li>Only <span className="opacity-100">Terran</span>, <span className="opacity-100">Desert</span>, <span className="opacity-100">Ferrous</span>, or <span className="opacity-100">City</span> planets can be player-owned.</li>
+								<li>Player- or NPC-owned planets disable <span className="opacity-100">Loot</span> and <span className="opacity-100">Artifacts</span>.</li>
 								</ul>
 							</div>
 							<div>
@@ -1803,6 +1826,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 								<ul className="text-xs opacity-80 list-disc pl-5 space-y-1 mt-1">
 									<li>Warnings (self-loops, duplicates, missing nodes, bad player index) must be cleared before export.</li>
 									<li>Scenarios are validated with AJV against the bundled schemas before packaging.</li>
+								<li><span className="opacity-100">Display Name</span> and <span className="opacity-100">Recommended Team Count</span> are required before export.</li>
 								</ul>
 							</div>
       <div>
