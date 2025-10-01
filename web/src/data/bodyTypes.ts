@@ -116,8 +116,8 @@ export const EDITOR_TO_GAME_FILLING: Record<string, string> = {
     asteroid_field: 'random_asteroid',
     asteroid_belt: 'random_asteroid',
     dead_asteroid: 'random_dead_asteroid',
-	asteroid_point_line_cluster: 'random_asteroid_point_line_cluster',
-	asteroid_hive: 'random_hive_asteroid',
+	asteroid_point_line_cluster: 'random_asteroid_line_cluster',
+	asteroid_hive: 'hive_asteroid',
     // Moons
     moon_small: 'random_moon_planet',
     moon_large: 'random_moon_planet',

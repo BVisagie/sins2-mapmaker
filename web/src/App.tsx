@@ -12,7 +12,7 @@ const WORLD_HEIGHT = 2325
 // Only these body types may be owned by players
 const PLAYER_OWNABLE_TYPES = new Set<string>(['planet_terran', 'planet_desert', 'planet_ferrous', 'planet_city'])
 // Planets that are not colonizable and therefore ineligible for artifacts
-const NON_COLONIZABLE_PLANET_IDS = new Set<string>(['planet_brown_dwarf', 'planet_uncolonizable'])
+const NON_COLONIZABLE_PLANET_IDS = new Set<string>(['planet_brown_dwarf', 'planet_uncolonizable', 'planet_shattered'])
 const STORAGE_KEYS = {
 	version: 'sins2.appVersion',
 	project: 'sins2.project',
