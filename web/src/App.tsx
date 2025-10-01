@@ -1167,7 +1167,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 		<div className="h-screen w-screen flex flex-col bg-black text-white">
 			<DevBanner />
 			<div className="h-12 border-b border-white/10 px-4 flex items-center justify-between">
-				<div className="font-semibold tracking-wide">Sins II Scenario Editor</div>
+				<div className="font-semibold tracking-wide">Sins II Map Maker</div>
 				<div className="flex items-center gap-2">
 					<button className="px-3 py-1 rounded border border-white/20 bg-neutral-900" onClick={resetProject}>Reset</button>
 					<button className="px-3 py-1 rounded border border-white/20 bg-neutral-900" onClick={onShare}>Share</button>
