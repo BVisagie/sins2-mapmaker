@@ -7,7 +7,8 @@ Live Demo: https://www.sins2-mapmaker.com/
 Browser-based scenario editor for Sins of a Solar Empire II.
 
 - Tech: React + Vite + TypeScript, Tailwind, React Konva, AJV, JSZip
-- Features: nodes (stars/planets/moons/asteroids/special), parent-star assignment, lane types (normal/star/wormhole), ownership & players, grid/snap, per-star limits, warnings, tooltips with game filling mapping, share URL, export to mod zip, artifacts (planet/ship groups)
+- Tech: React + Vite + TypeScript, Tailwind, React Konva, AJV, JSZip, LZString
+- Features: nodes (stars/planets/moons/asteroids/special), parent-star assignment, lane types (normal/star/wormhole), ownership & players, grid/snap, per-star limits, warnings, tooltips with game filling mapping, share URL, export to mod zip, artifacts (planet/ship groups), optional logo and localized text
 
 ## Prerequisites
 
@@ -33,10 +34,12 @@ Open the app at the printed URL.
 - Scenario
   - Scenario Name (alphanumeric + spaces; sanitized for file names)
   - Display Name (in-game, required for export)
+  - Display Version (shown in exported `.mod_meta_data`)
   - Recommended Team Count (required for export; options depend on Players)
   - Author and Short Description
   - Players count (validates player ownership indices, min 2, max 10)
   - Compatibility Version (written to `.mod_meta_data`)
+  - Logo (optional; exported as `logo.png` if provided)
   - Skybox is fixed to `skybox_random`
 - Nodes
   - Add Star
@@ -69,6 +72,8 @@ Open the app at the printed URL.
   - Blocks export if warnings exist
   - Blocks export on unrecognized body types (must be bundled or valid game ids like random_* / home_* / wormhole_fixture)
   - Requires Display Name (in-game) and a Recommended Team Count
+  - Sets Compatibility Version to 2 in exported `.mod_meta_data`
+  - Generates localized text entries for name/description in `localized_text/en.localized_text`
   - Downloads `<ScenarioName>.zip`
 
 ## Body Types
@@ -93,6 +98,7 @@ Body types are bundled with the app in `web/src/data/bodyTypes.ts`.
 Notes:
 
 - The `.scenario` file is itself a zip containing: `scenario_info.json`, `galaxy_chart.json`, `galaxy_chart_fillings.json`, and `picture.png` (auto-generated from your canvas with home badges).
+- Snapshot image is 800×775 and includes home number badges and NPC markers.
 - The Display Name is taken from the Scenario panel; the folder name is `<ScenarioName>/` (sanitized from Scenario Name).
 - Place the extracted folder into your Sins II mods directory.
 
