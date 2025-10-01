@@ -475,6 +475,29 @@ useEffect(() => {
 			setWarnings(w)
 	}, [lanes, nodes, players])
 
+	// Auto-clear ajvError when underlying issues are resolved
+	useEffect(() => {
+		if (!ajvError) return
+		
+		// Clear if error was about warnings and warnings are now resolved
+		if (ajvError.startsWith('Fix warnings before export:') && warnings.length === 0) {
+			setAjvError(null)
+			return
+		}
+		
+		// Clear if error was about missing team count and it's now set
+		if (ajvError.includes('Recommended Team Count') && teamCount != null) {
+			setAjvError(null)
+			return
+		}
+		
+		// Clear if error was about missing display name and it's now set
+		if (ajvError.includes('Display Name') && displayName && displayName.trim().length > 0) {
+			setAjvError(null)
+			return
+		}
+	}, [ajvError, warnings, teamCount, displayName])
+
 	// Derive current star nodes for convenience
 	const starNodes = useMemo(() => nodes.filter(n => bodyTypeById.get(n.filling_name)?.category === 'star'), [nodes])
 
@@ -1769,8 +1792,16 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 				</div>
 				<div className="w-80 border-l border-white/10 p-4 overflow-auto">
 					<div className="space-y-6">
+						{/* Export Status Indicator */}
+						{warnings.length === 0 && !ajvError && (
+							<div className="space-y-2 bg-green-900/20 border border-green-400/30 rounded p-3">
+								<div className="font-medium text-sm text-green-300">✓ Ready to Export</div>
+								<div className="text-xs opacity-70">No build issues or validation errors detected.</div>
+							</div>
+						)}
+
 						<div className="space-y-2 bg-neutral-900/30 border border-yellow-400/20 rounded p-3">
-							<div className="font-medium text-sm text-yellow-300">Warnings</div>
+							<div className="font-medium text-sm text-yellow-300">Build Issues</div>
 							{warnings.length === 0 ? (
 								<div className="text-xs opacity-70">No issues detected.</div>
 							) : (
@@ -1779,7 +1810,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 						</div>
 
 						<div className="space-y-2 bg-neutral-900/30 border border-red-400/20 rounded p-3">
-							<div className="font-medium text-sm text-red-300">Validation</div>
+							<div className="font-medium text-sm text-red-300">Export Readiness</div>
 							{ajvError ? (
 								<pre className="text-xs text-red-300 whitespace-pre-wrap max-h-60 overflow-auto">{ajvError}</pre>
 							) : (
@@ -1836,7 +1867,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
 							<div>
 								<div className="text-xs font-medium opacity-90">Export & Validation</div>
 								<ul className="text-xs opacity-80 list-disc pl-5 space-y-1 mt-1">
-									<li>Warnings (self-loops, duplicates, missing nodes, bad player index) must be cleared before export.</li>
+									<li>Build Issues (self-loops, duplicates, missing nodes, bad player index) must be cleared before export.</li>
 									<li>Scenarios are validated with AJV against the bundled schemas before packaging.</li>
 								<li><span className="opacity-100">Display Name</span> and <span className="opacity-100">Recommended Team Count</span> are required before export.</li>
 								</ul>
