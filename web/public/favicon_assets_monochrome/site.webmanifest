@@ -1,0 +1,25 @@
+{
+  "name": "Sins2 Map Maker",
+  "short_name": "Sins2 Map Maker",
+  "id": "/",
+  "scope": "/",
+  "description": "Browser-based scenario editor for Sins of a Solar Empire II.",
+  "icons": [
+    {
+      "src": "/favicon_assets_monochrome/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon_assets_monochrome/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "theme_color": "#0b0f1a",
+  "background_color": "#0b0f1a",
+  "display": "standalone",
+  "start_url": "/"
+}
