@@ -6,7 +6,6 @@ Live Demo: https://www.sins2-mapmaker.com/
 
 Browser-based scenario editor for Sins of a Solar Empire II.
 
-- Tech: React + Vite + TypeScript, Tailwind, React Konva, AJV, JSZip
 - Tech: React + Vite + TypeScript, Tailwind, React Konva, AJV, JSZip, LZString
 - Features: nodes (stars/planets/moons/asteroids/special), parent-star assignment, lane types (normal/star/wormhole), ownership & players, grid/snap, per-star limits, warnings, tooltips with game filling mapping, share URL, export to mod zip, artifacts (planet/ship groups), optional logo and localized text
 
