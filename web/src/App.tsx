@@ -4,6 +4,7 @@ import { Stage, Layer, Circle, Line, Group, Text as KonvaText } from 'react-konv
 import JSZip from 'jszip'
 import Ajv, { type ValidateFunction } from 'ajv'
 import './index.css'
+import MobileBanner from './components/MobileBanner'
 import LZString from 'lz-string'
 
 const APP_VERSION = '0.9.0'
@@ -1166,6 +1167,7 @@ const createMapPictureBlob = async (): Promise<Blob | null> => {
   return (
 		<div className="h-screen w-screen flex flex-col bg-black text-white">
 			<DevBanner />
+			<MobileBanner />
 			<div className="h-12 border-b border-white/10 px-4 flex items-center justify-between">
 				<div className="font-semibold tracking-wide">Sins II Map Maker</div>
 				<div className="flex items-center gap-2">
