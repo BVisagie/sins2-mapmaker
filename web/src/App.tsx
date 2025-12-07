@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type React from 'react'
 import { Stage, Layer, Circle, Line, Group, Text as KonvaText } from 'react-konva'
 import JSZip from 'jszip'
@@ -636,7 +636,7 @@ useEffect(() => {
 		setSelectedId(id)
 	}
 
-	const removeSelected = () => {
+	const removeSelected = useCallback(() => {
 		if (selectedId == null) return
 		const selected = nodes.find(n => n.id === selectedId)
 		if (!selected) return
@@ -677,7 +677,7 @@ useEffect(() => {
 		setNodes(prev => prev.filter(n => n.id !== selectedId))
 		setLanes(prev => prev.filter(l => l.node_a !== selectedId && l.node_b !== selectedId))
 		setSelectedId(null)
-	}
+	}, [lanes, newBodyParentStarId, nodes, selectedId])
 
 	// Keyboard: Delete key removes selected node (with confirmations/rules)
 	useEffect(() => {
