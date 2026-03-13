@@ -216,7 +216,14 @@ useEffect(() => {
 				if (typeof decoded.shortDescription === 'string') setShortDescription(decoded.shortDescription)
 				if (typeof decoded.displayName === 'string') setDisplayName(decoded.displayName)
 				if (typeof decoded.displayVersion === 'string') setDisplayVersion(decoded.displayVersion)
-				if (decoded.logoDataUrl != null) setLogoDataUrl(decoded.logoDataUrl as string | null)
+				{
+					const safeLogo = isSafeLogoDataUrl((decoded as any).logoDataUrl)
+					if (safeLogo !== null) {
+						setLogoDataUrl(safeLogo)
+					} else {
+						setLogoDataUrl(null)
+					}
+				}
 				if (decoded.grid && typeof decoded.grid === 'object') {
 					if (typeof decoded.grid.showGrid === 'boolean') setShowGrid(decoded.grid.showGrid)
 					if (typeof decoded.grid.snapToGrid === 'boolean') setSnapToGrid(decoded.grid.snapToGrid)
@@ -2081,6 +2088,19 @@ function encodeState(obj: any) {
     // Compress to base64-safe URI component
     return LZString.compressToEncodedURIComponent(json)
 }
+
+// Validate that a logo data URL is in an expected, safe format.
+// We currently only accept image data URLs such as those produced by FileReader.readAsDataURL.
+function isSafeLogoDataUrl(url: unknown): string | null {
+    if (typeof url !== 'string') return null
+    // Allow only data URLs for images, e.g. "data:image/png;base64,..."
+    const trimmed = url.trim()
+    if (/^data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+$/.test(trimmed)) {
+        return trimmed
+    }
+    return null
+}
+
 function decodeState(s: string) {
     // Try LZString first
     try {
